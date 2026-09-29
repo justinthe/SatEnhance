@@ -1,0 +1,13 @@
+# Top-level pins tested together (Python 3.11). torch is installed separately by the Dockerfile
+# from the CPU or CUDA index; transitive dependencies are resolved by pip.
+numpy==2.4.6
+rasterio==1.4.4
+shapely==2.1.2
+pillow==12.3.0
+typer==0.27.2
+tqdm==4.70.1
+pydantic==2.13.5
+sen2sr==0.8.5
+mlstac==0.4.9
+timm==1.0.30
+einops==0.8.2

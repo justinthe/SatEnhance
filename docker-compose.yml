@@ -1,0 +1,75 @@
+# Services:
+#   acquire      System 1 (download Sentinel-2)
+#   enhance-cpu  System 2, CPU image (lite model)
+#   enhance-gpu  System 2, GPU image (profile "gpu"; needs NVIDIA Container Toolkit)
+# Use scripts/*.sh rather than calling this directly.
+
+x-user: &user "${UID:-1000}:${GID:-1000}"
+
+x-volumes: &volumes
+  - ./rawdata:/data/rawdata
+  - ./output:/data/output
+  - ./cache:/data/cache
+
+services:
+  acquire:
+    image: satenhance-acquire:latest
+    build:
+      context: .
+      dockerfile: acquire/Dockerfile
+      secrets: [cabundle]
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.11-slim}
+    user: *user
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SATENHANCE_PROVIDER: ${SATENHANCE_PROVIDER:-cdse}
+      SATENHANCE_FIXTURE_DIR: ${SATENHANCE_FIXTURE_DIR:-}
+    volumes: *volumes
+
+  enhance-cpu:
+    image: satenhance-enhance:cpu
+    build:
+      context: .
+      dockerfile: enhance/Dockerfile.cpu
+      secrets: [cabundle]
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.11-slim}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    user: *user
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SATENHANCE_STUB_MODEL: ${SATENHANCE_STUB_MODEL:-0}
+    volumes: *volumes
+
+  enhance-gpu:
+    profiles: ["gpu"]
+    image: satenhance-enhance:gpu
+    build:
+      context: .
+      dockerfile: enhance/Dockerfile.gpu
+      secrets: [cabundle]
+    user: *user
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SATENHANCE_STUB_MODEL: ${SATENHANCE_STUB_MODEL:-0}
+    volumes: *volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+# Optional CA bundle used only while building (pip), for networks with a TLS-inspecting proxy.
+# Set CA_BUNDLE=/path/to/ca.pem; by default an empty file is used and nothing changes.
+secrets:
+  cabundle:
+    file: ${CA_BUNDLE:-/dev/null}

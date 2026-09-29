@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 |
+| **Status** | v0.2 — decisions applied; v1 implemented (see README) |
 | **Date** | 2026-09-29 |
 | **Owner** | Justin |
 | **Scope** | v1 (CLI + containers + automation scripts) |
@@ -26,14 +26,14 @@ Sentinel-2 is free and frequent, but its 10 m pixels are too coarse for many GIS
 
 ### Goals (v1)
 1. Accept an AOI as a vector file **or** a plain-text place name.
-2. Download the best-matching Sentinel-2 scene (and optionally Sentinel-1) for the AOI and time window.
+2. Download the best-matching Sentinel-2 scene for the AOI and time window.
 3. Recover gracefully when no data matches (interactive retry or a machine-readable failure).
 4. Super-resolve Sentinel-2 imagery using SEN2SR, with tiling for large AOIs.
 5. Ship as containers with three run scripts: System 1 only, System 2 only, both chained.
 
 ### Non-goals (v1)
 - LiDAR and hyperspectral data. Sentinel satellites do not provide LiDAR. Sentinel-2 is multispectral (13 bands), not hyperspectral. See §6.
-- Enhancing Sentinel-1 SAR. SEN2SR is built for Sentinel-2 (see §8.1).
+- **Sentinel-1 (SAR) altogether** — dropped from v1 by decision. SEN2SR is built for Sentinel-2 (see §9.1), so SAR could only ever be download-only. `--sensor sar` is rejected with a clear message.
 - Web UI or REST API (interface decision: CLI + shell scripts only).
 - Cloud-free compositing / mosaicking across dates (decision: single best scene).
 - Real-time or streaming acquisition. Despite the repo README's "real time" wording, v1 is batch.
@@ -49,13 +49,13 @@ Sentinel-2 is free and frequent, but its 10 m pixels are too coarse for many GIS
 | UC2 | "Here's my `site.geojson` — get me an enhanced image for last month." |
 | UC3 | "I already have raw Sentinel-2 files in `rawdata/`; just enhance them." |
 | UC4 | "Run the whole pipeline nightly, unattended, and tell me if it failed." |
-| UC5 | "Get Sentinel-1 SAR for this AOI" (download only, no enhancement). |
+| UC5 | ~~"Get Sentinel-1 SAR for this AOI"~~ — deferred (not in v1). |
 
 ## 4. Decisions already made (from the interview)
 
 | Topic | Decision |
 |---|---|
-| Sensor param | Maps to Sentinel-2 products (`rgb`, `multispectral`); `sar` for Sentinel-1 download-only; LiDAR out of scope |
+| Sensor param | Maps to Sentinel-2 products (`rgb`, `multispectral`); `sar` (Sentinel-1) dropped from v1; LiDAR/hyperspectral rejected |
 | Interface | CLI + shell scripts only |
 | Data source | Copernicus Data Space Ecosystem (CDSE) |
 | Compute | Both GPU and CPU image variants |
@@ -93,7 +93,9 @@ Sentinel-2 is free and frequent, but its 10 m pixels are too coarse for many GIS
 | Sensor / product | `--sensor {rgb,multispectral,sar}` | enum | no | `rgb` | See §6.2 |
 | Output dir | `--out DIR` | path | no | `/data/rawdata` | Container path |
 | Non-interactive | `--non-interactive` | flag | no | off | Never prompt; fail with exit code 10 on no data |
-| Max AOI area | `--max-area-km2 N` | number | no | 100 | Hard cap; see §7.4 |
+| Max AOI area | `--max-area-km2 N` | number | no | 100 | Hard cap on the AOI **bounding box**; see §7.4 |
+| Min coverage | `--min-coverage N` | 0–100 (%) | no | 95 | Minimum share of the AOI the scene must cover |
+| Cache dir | `--cache DIR` | path | no | `/data/cache` | Geocode cache |
 | Confirm geocode | `--yes` | flag | no | off | Auto-accept the top geocode match (for automation) |
 
 ### 6.2 The `sensor` parameter
@@ -104,7 +106,7 @@ Your original list was RGB / LiDAR / Hyperspectral. Sentinel-1 and Sentinel-2 ca
 |---|---|---|---|
 | `rgb` | Sentinel-2 L2A | B02, B03, B04 (true colour). B08 (NIR) is also fetched because the RGBN model variant needs it. | Yes (10 m → 2.5 m) |
 | `multispectral` | Sentinel-2 L2A | B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12 (the 10 bands used in SEN2SR's examples) | Yes (see §8.2) |
-| `sar` | Sentinel-1 GRD | VV/VH polarisation as available | **No** — download only |
+| `sar` | Sentinel-1 GRD | — | **Not supported in v1** (rejected with a message; planned) |
 | `lidar`, `hyperspectral` | — | Not available from Sentinel | Rejected with a clear error message |
 
 Rejecting `lidar` / `hyperspectral` explicitly (rather than silently substituting) prevents users assuming they got something they did not.
@@ -116,10 +118,13 @@ Rejecting `lidar` / `hyperspectral` explicitly (rather than silently substitutin
 | Input dir | `--in DIR` | `/data/rawdata` | Reads `manifest.json` |
 | Output dir | `--out DIR` | `/data/output` | |
 | Model | `--model {lite,full}` | `lite` | `full` needs the GPU image (§8.3) |
-| Variant | `--variant {auto,rgbn_x4,multispectral_x4,rswir_x2}` | `auto` | `auto` picks from the manifest's product type |
+| Variant | `--variant {auto,rgbn_x4,multispectral_x4}` | `auto` | `auto` picks from the manifest's product type. The 20 m → 10 m `rswir_x2` model is **deferred**: its input/output layout could not be verified without the weights |
 | Tile overlap | `--overlap N` | 32 | Pixels; matches SEN2SR's `predict_large` example |
 | Device | `--device {auto,cpu,cuda}` | `auto` | |
-| Output format | `--format {geotiff}` | `geotiff` | COG optional (§8.6) |
+| COG | `--cog` | off | Write Cloud-Optimised GeoTIFFs |
+| Polygon mask | `--clip-to-polygon` | off | Mask pixels outside the AOI polygon (default: whole bounding box) |
+| Reflectance mode | `--reflectance {offset-corrected,raw-div10000}` | `offset-corrected` | How DNs are converted before the model; see §8.3 [VERIFY visually] |
+| Block size | `--block N` | 512 | Input pixels per processing block (bounds memory) |
 
 ## 7. AOI handling (System 1)
 
@@ -151,7 +156,8 @@ The resolver tries by extension first, then falls back to OGR auto-detection. An
 - Ambiguity note: "Perth" exists in several countries, and "Perth City" is administratively a small area within the greater Perth metro. The confirmation step is important for this reason.
 
 ### 7.4 Size limits
-- Default hard cap: **100 km²** (configurable via `--max-area-km2` or env `SATENHANCE_MAX_AREA_KM2`). Larger AOIs exit with code 3 and a message showing the AOI area, the cap, and a size estimate.
+- Default hard cap: **100 km²**, applied to the AOI's **bounding box** because that is what is downloaded and enhanced (a thin diagonal polygon can have a much bigger bbox). The error reports both figures.
+- Configurable via via `--max-area-km2` or env `SATENHANCE_MAX_AREA_KM2`). Larger AOIs exit with code 3 and a message showing the AOI area, the cap, and a size estimate.
 - Before downloading, print an estimate: number of Sentinel-2 tiles intersected, approximate download size, and (from System 2) approximate enhanced output size.
 - Reason for the cap: a 10 m → 2.5 m upscale multiplies pixel count by 16. 100 km² at 10 m is about 1 million pixels per band; at 2.5 m it is about 16 million per band. This is manageable, but memory grows quickly with more bands and larger areas. The cap should be tuned after benchmarking.
 
@@ -163,7 +169,7 @@ The resolver tries by extension first, then falls back to OGR auto-detection. An
 - **Provider abstraction:** the search and download code sits behind a `Provider` interface (`search()`, `download()`), so another source (AWS Earth Search, Planetary Computer) can be added later without touching the rest.
 
 ### 8.2 Search and selection
-1. Search the STAC catalogue with `intersects=<AOI>`, `datetime=<start>/<end>`, and (for S2) `eo:cloud_cover <= max-cloud`.
+1. Search the STAC catalogue with `intersects=<AOI>`, `datetime=<start>/<end>`, and a tile-level `eo:cloud_cover` prefilter. The prefilter is deliberately looser than `--max-cloud` (`max-cloud + 30`, capped at 100) because tile cloud is only a proxy; the exact test uses AOI-local cloud (step 2).
 2. **Cloud cover caveat:** the catalogue's `eo:cloud_cover` is a *whole-tile* figure. The AOI might be cloud-free while the tile reads 40%, or the reverse. Requirement: after shortlisting candidates, compute **AOI-local cloud fraction** from the Scene Classification Layer (SCL) band (classes for cloud shadow, medium/high-probability cloud, cirrus) and use that for the final ranking and the threshold check.
 3. Also require the AOI to be fully covered by the scene (or report the covered percentage). Partial coverage below 100% is a warning, and below a configurable minimum (default 95%) a rejection.
 4. Rank: lowest AOI-local cloud fraction first; ties broken by most recent acquisition date.
@@ -234,7 +240,7 @@ rawdata/<run_id>/
 |---|---|---|
 | `rgb` | `NonReference_RGBN_x4` | 4-band (R, G, B, NIR) at 2.5 m; also a 3-band RGB preview |
 | `multispectral` | `SEN2SRLite` (10 bands → 2.5 m) or full `SEN2SR` if `--model full` | 10 bands at 2.5 m |
-| `sar` | — | Skipped with a clear message, exit code 0 with status `skipped` |
+| `sar` | — | Not applicable in v1 (System 1 rejects `sar`) |
 
 ### 9.3 Processing steps
 1. **Validate input:** read `manifest.json`; check the required bands exist, share CRS and grid alignment, and have expected sizes. Fail with exit code 20 and an actionable message otherwise.
@@ -445,16 +451,20 @@ SatEnhance/
 | SEN2SR licence ambiguity (MIT badge vs CC0 file, weights unknown) | Legal uncertainty | Verify before distribution |
 | Very large outputs fill disk | Failed runs | Size estimate before download; cap; docs |
 
-## 18. Open questions
+## 18. Open questions — resolved
 
-1. **Output format extras:** is plain GeoTIFF enough, or do you also want COG / PNG / a web-tile export?
-2. **Sentinel-1 details:** which S1 product do you want (GRD only, or SLC / RTC-processed)? GRD is assumed. Should any pre-processing (calibration, terrain correction) be in scope, or is raw download enough?
-3. **CRS of outputs:** keep the Sentinel-2 native UTM zone (assumed), or reproject to EPSG:4326 / a custom CRS?
-4. **Polygon clipping:** should the final output be masked to the exact AOI polygon or left as the bounding rectangle (assumed: bbox by default, polygon mask optional)?
-5. **Retention:** should `rawdata/` be kept after enhancement, or cleaned automatically?
-6. **Default cloud limit and area cap:** are 20% and 100 km² sensible for your typical work?
-7. **Scheduling:** is unattended/cron use a real requirement in v1, or just a nice property of the non-interactive flags?
-8. **Git strategy:** your repository README currently contains marketing claims ("sub-meter", "real time") that don't match v1. Should I correct them when I implement?
+| # | Question | Decision |
+|---|---|---|
+| 1 | Output formats | GeoTIFF (full bands + 8-bit RGB) and a before/after PNG; `--cog` optional |
+| 2 | Sentinel-1 | Dropped from v1 |
+| 3 | Output CRS | Native Sentinel-2 UTM zone |
+| 4 | Polygon clipping | AOI bounding box by default; `--clip-to-polygon` masks outside the polygon |
+| 5 | Retention | `rawdata/` is kept; nothing is auto-deleted |
+| 6 | Defaults | `--max-cloud 20`, `--max-area-km2 100` (area cap applies to the bounding box) |
+| 7 | Scheduling | No cron integration; `--non-interactive` + exit codes are enough for external schedulers |
+| 8 | README claims | Corrected ("sub-meter" / "real time" removed) |
+
+Still open / unverified (each marked **[VERIFY]** where it appears): CDSE STAC/S3 details, the full-model weight path, the Sentinel-2 reflectance offset convention expected by SEN2SR, the GPU image build, the SEN2SR licence and weights licence.
 
 ## 19. Assumptions (correct me if wrong)
 - You have, or will create, a free CDSE account.

@@ -1,0 +1,50 @@
+# System 2, GPU (SEN2SR "lite" + full Mamba model). Needs the NVIDIA Container Toolkit.
+# Build from the repo root:  docker build -f enhance/Dockerfile.gpu .
+#
+# mamba-ssm compiles CUDA kernels and the SEN2SR README warns the build is slow and fragile.
+# The versions below are a best guess and are UNTESTED here (no GPU / no access to the PyTorch
+# index from the authoring sandbox) [VERIFY]. If the build fails, pin a torch / CUDA / mamba-ssm
+# combination known to work for your GPU via the build args.
+ARG CUDA_VERSION=12.4.1
+
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 AS builder
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+ARG TORCH_SPEC=torch
+ARG MAMBA_SPEC=mamba-ssm
+ARG TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.11 python3.11-venv python3.11-dev build-essential ninja-build git \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
+    pip install --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} && pip install wheel packaging setuptools
+# mamba-ssm must be built against the installed torch
+RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
+    pip install --no-build-isolation ${MAMBA_SPEC}
+WORKDIR /src
+COPY enhance/requirements.lock /tmp/requirements.lock
+RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
+    pip install -r /tmp/requirements.lock
+COPY common ./common
+COPY enhance ./enhance
+RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
+    pip install --no-deps ./common ./enhance
+
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 HOME=/tmp HF_HOME=/data/cache/hf \
+    PATH=/opt/venv/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends python3.11 libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /opt/venv /opt/venv
+RUN useradd -m -u 1000 app && mkdir -p /data/rawdata /data/output /data/cache && chown -R app /data
+USER app
+WORKDIR /data
+ENTRYPOINT ["satenhance-enhance"]
+CMD ["--help"]
