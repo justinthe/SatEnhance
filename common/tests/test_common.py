@@ -1,10 +1,9 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from satenhance_common import manifest as mf
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from satenhance_common.logging import RedactFilter
@@ -49,7 +48,7 @@ def test_load_missing_and_invalid(tmp_path):
 
 
 def test_run_id_and_latest(tmp_path):
-    rid = make_run_id("Perth City, WA", datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc))
+    rid = make_run_id("Perth City, WA", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
     assert rid == "20260102T030405_perth-city-wa"
     assert slugify("!!!") == "aoi"
     assert read_latest(tmp_path) is None

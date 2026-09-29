@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 LATEST_FILE = "LATEST"
@@ -13,7 +13,7 @@ def slugify(text: str, max_len: int = 40) -> str:
 
 
 def make_run_id(label: str, now: datetime | None = None) -> str:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     return f"{now.strftime('%Y%m%dT%H%M%S')}_{slugify(label)}"
 
 

@@ -1,5 +1,4 @@
 import pytest
-
 from satenhance_acquire import aoi, sizing
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 

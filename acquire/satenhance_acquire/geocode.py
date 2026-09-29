@@ -12,10 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry import box, shape
 from shapely.geometry.base import BaseGeometry
-
-from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 
 from .prompts import ask, say
 from .sizing import geodesic_area_km2

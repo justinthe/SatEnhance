@@ -1,8 +1,6 @@
-import json
 
 import pytest
 import responses
-
 from satenhance_acquire import geocode
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 

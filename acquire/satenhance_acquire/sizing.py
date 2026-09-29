@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyproj import Geod
+from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
-
-from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 
 _GEOD = Geod(ellps="WGS84")
 

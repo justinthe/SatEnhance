@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "satenhance-acquire"
 version = "0.1.0"
 description = "SatEnhance System 1: resolve an AOI and download Sentinel-2 data"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "satenhance-common",
   "geopandas>=1.0",
@@ -31,3 +31,4 @@ packages = ["satenhance_acquire"]
 testpaths = ["tests"]
 markers = ["live: needs real CDSE credentials and network (opt-in)"]
 addopts = "-m 'not live'"
+filterwarnings = ["ignore::PendingDeprecationWarning", "ignore::DeprecationWarning"]
