@@ -1,0 +1,266 @@
+{
+  "$defs": {
+    "Alternate": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "datetime": {
+          "title": "Datetime",
+          "type": "string"
+        },
+        "aoi_cloud_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aoi Cloud Fraction"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "id",
+        "datetime"
+      ],
+      "title": "Alternate",
+      "type": "object"
+    },
+    "Aoi": {
+      "properties": {
+        "crs": {
+          "default": "EPSG:4326",
+          "title": "Crs",
+          "type": "string"
+        },
+        "bbox": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Bbox",
+          "type": "array"
+        },
+        "area_km2": {
+          "title": "Area Km2",
+          "type": "number"
+        }
+      },
+      "required": [
+        "bbox",
+        "area_km2"
+      ],
+      "title": "Aoi",
+      "type": "object"
+    },
+    "BandInfo": {
+      "properties": {
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "res_m": {
+          "title": "Res M",
+          "type": "number"
+        },
+        "scale": {
+          "default": 0.0001,
+          "title": "Scale",
+          "type": "number"
+        },
+        "offset": {
+          "default": 0.0,
+          "title": "Offset",
+          "type": "number"
+        }
+      },
+      "required": [
+        "file",
+        "res_m"
+      ],
+      "title": "BandInfo",
+      "type": "object"
+    },
+    "Query": {
+      "properties": {
+        "aoi_source": {
+          "title": "Aoi Source",
+          "type": "string"
+        },
+        "aoi_file": {
+          "default": "aoi.geojson",
+          "title": "Aoi File",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "max_cloud": {
+          "title": "Max Cloud",
+          "type": "number"
+        },
+        "sensor": {
+          "enum": [
+            "rgb",
+            "multispectral"
+          ],
+          "title": "Sensor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "aoi_source",
+        "start",
+        "end",
+        "max_cloud",
+        "sensor"
+      ],
+      "title": "Query",
+      "type": "object"
+    },
+    "Scene": {
+      "properties": {
+        "mission": {
+          "default": "sentinel-2",
+          "title": "Mission",
+          "type": "string"
+        },
+        "product": {
+          "default": "L2A",
+          "title": "Product",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "datetime": {
+          "title": "Datetime",
+          "type": "string"
+        },
+        "tile_cloud_cover": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tile Cloud Cover"
+        },
+        "aoi_cloud_fraction": {
+          "title": "Aoi Cloud Fraction",
+          "type": "number"
+        },
+        "aoi_coverage": {
+          "title": "Aoi Coverage",
+          "type": "number"
+        },
+        "processing_baseline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Processing Baseline"
+        },
+        "bands": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BandInfo"
+          },
+          "title": "Bands",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "datetime",
+        "aoi_cloud_fraction",
+        "aoi_coverage",
+        "bands"
+      ],
+      "title": "Scene",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "created_utc": {
+      "title": "Created Utc",
+      "type": "string"
+    },
+    "query": {
+      "$ref": "#/$defs/Query"
+    },
+    "aoi": {
+      "$ref": "#/$defs/Aoi"
+    },
+    "scene": {
+      "$ref": "#/$defs/Scene"
+    },
+    "alternates": {
+      "items": {
+        "$ref": "#/$defs/Alternate"
+      },
+      "title": "Alternates",
+      "type": "array"
+    },
+    "status": {
+      "const": "complete",
+      "default": "complete",
+      "title": "Status",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1.0",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "created_utc",
+    "query",
+    "aoi",
+    "scene"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

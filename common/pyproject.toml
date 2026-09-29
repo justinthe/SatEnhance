@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "satenhance-common"
+version = "0.1.0"
+description = "Shared contract (manifest, exit codes, logging) for SatEnhance"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.5"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["satenhance_common"]
+include = ["satenhance_common/manifest.schema.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
