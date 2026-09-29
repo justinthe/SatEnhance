@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "satenhance-enhance"
+version = "0.1.0"
+description = "SatEnhance System 2: SEN2SR super-resolution of Sentinel-2 rawdata"
+requires-python = ">=3.11"
+dependencies = [
+  "satenhance-common",
+  "numpy>=1.26",
+  "rasterio>=1.3",
+  "pillow>=10",
+  "typer>=0.12",
+  "shapely>=2.0",
+  "tqdm>=4.66",
+  "torch",
+  "sen2sr",
+  "mlstac",
+]
+
+[project.scripts]
+satenhance-enhance = "satenhance_enhance.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["satenhance_enhance"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::PendingDeprecationWarning", "ignore::DeprecationWarning"]
