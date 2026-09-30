@@ -64,6 +64,8 @@ def enhance(p: EnhanceParams) -> Path:
     if p.overlap < 0 or p.overlap % 2 or p.block < 128:
         raise SatEnhanceError(ExitCode.INVALID_INPUT, "--overlap must be even and >= 0; --block >= 128")
 
+    resolve_device(p.device, p.family)  # fail fast (exit 21) before touching any input
+
     run_dir = resolve_run_dir(p.run_id, p.in_dir, p.rawdata)
     from satenhance_common import manifest as mf
 
@@ -75,7 +77,6 @@ def enhance(p: EnhanceParams) -> Path:
     variant = VARIANTS[variant_name]
     inp = load_input(run_dir, variant_name)
 
-    resolve_device(p.device, p.family)  # fail fast (exit 21) before heavy work
     model = load_model(variant_name, p.family, p.device, p.cache_dir)
 
     cube = build_cube(inp, variant, p.reflectance)

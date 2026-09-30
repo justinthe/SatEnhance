@@ -173,6 +173,13 @@ def test_full_model_on_cpu_exit_21(raw, tmp_path):
     assert not (tmp_path / "out").exists()  # failed before doing any work
 
 
+def test_full_model_on_cpu_exit_21_even_without_rawdata(tmp_path):
+    (tmp_path / "raw").mkdir()
+    with pytest.raises(SatEnhanceError) as e:
+        enhance(params(tmp_path, family="full"))
+    assert e.value.code == ExitCode.MODEL_UNSUPPORTED  # hardware check precedes input check
+
+
 def test_cuda_requested_without_gpu_exit_21(raw, tmp_path):
     import torch
     if torch.cuda.is_available():
