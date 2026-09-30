@@ -55,7 +55,8 @@ assets = {n: {"href": f"https://example.invalid/{n}"}
           for n in ("model.safetensor", "hard_constraint.safetensor", "load.py")}
 (target / "mlm.json").write_text(json.dumps({
     "type": "Feature", "stac_version": "1.1.0", "id": "check", "geometry": None, "links": [],
-    "properties": {"datetime": None}, "assets": assets}))
+    "properties": {"datetime": None, "start_datetime": "1900-01-01T00:00:00Z",
+                   "end_datetime": "9999-01-01T00:00:00Z"}, "assets": assets}))
 (target / COMPLETE_MARKER).write_text("{}")
 
 m = models.load_model("rgbn_x4", "lite", "cpu", cache)
