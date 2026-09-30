@@ -91,6 +91,8 @@ make smoke                              # builds CPU images and runs the contain
 
 The smoke test uses an offline fixture provider and a **bicubic stub in place of the SEN2SR model** (`SATENHANCE_STUB_MODEL=1`, clearly flagged in the report). It proves the containers, scripts, volumes, exit codes and GeoTIFF geometry, not real Copernicus access or real model quality.
 
+**Step-by-step guide (API keys, scripts, every parameter, output locations): [`docs/HOWTO.md`](docs/HOWTO.md).**
+
 Layout: `common/` (manifest + exit codes shared by both systems), `acquire/` (System 1), `enhance/` (System 2), `scripts/`, `docs/PRD.md`, `docs/IMPLEMENTATION_PLAN.md`.
 
 ## Things to check on your first real run
