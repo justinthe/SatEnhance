@@ -116,7 +116,7 @@ def load_model(variant_name: str, family: str, device_req: str, cache_root: Path
 _MISSING_RE = re.compile(r"No module named '([\w.]+)'|import of ([\w.]+) halted")
 
 
-def missing_module(exc: BaseException | None) -> str | None:
+def missing_module(exc: BaseException | None, full: bool = False) -> str | None:
     """Name of the missing Python package behind an exception, if there is one.
 
     mlstac runs the model's load.py and re-raises whatever it hits as RuntimeError("Failed to
@@ -126,13 +126,31 @@ def missing_module(exc: BaseException | None) -> str | None:
     seen = 0
     while exc is not None and seen < 10:
         if isinstance(exc, ModuleNotFoundError) and exc.name:
-            return exc.name.split(".")[0]
+            return exc.name if full else exc.name.split(".")[0]
         m = _MISSING_RE.search(str(exc))
         if m:
-            return (m.group(1) or m.group(2)).split(".")[0]
+            name = m.group(1) or m.group(2)
+            return name if full else name.split(".")[0]
         exc = exc.__cause__ or exc.__context__
         seen += 1
     return None
+
+
+def module_hint(mod: str) -> str:
+    pkg = mod.split(".")[0]
+    if pkg in ("distutils", "setuptools"):
+        return ("The image's Python is incomplete (python3-distutils / setuptools); rebuild the "
+                "GPU image: ./scripts/build.sh --gpu-only")
+    if pkg == "mamba_ssm":
+        return "Use the GPU image (./scripts/build.sh --gpu-only): mamba_ssm is installed there."
+    return "Rebuild the image with that package added (see docs/HOWTO.md, Troubleshooting)."
+
+
+def _traceback_tail(exc: BaseException, n: int = 6) -> str:
+    import traceback
+
+    lines = [ln for ln in "".join(traceback.format_exception(exc)).splitlines() if ln.strip()]
+    return "\nImport trace (last lines):\n  " + "\n  ".join(lines[-n:])
 
 
 def _param_dtype(module) -> str:
@@ -165,19 +183,16 @@ def _load_from_cache(url: str, target: Path, device: str, variant: Variant, fami
         try:
             return _load_compiled(target, device)
         except Exception as e:  # noqa: BLE001  (torch/mlstac raise many types)
-            pkg = missing_module(e)
-            if pkg:
-                # Not a corrupt download: keep the cache, name the package.
-                hint = (
-                    "Use the GPU image (./scripts/build.sh --gpu-only): mamba_ssm is installed there."
-                    if pkg == "mamba_ssm" else
-                    "Rebuild the image with that package added (see docs/HOWTO.md, Troubleshooting)."
-                )
-                raise SatEnhanceError(
+            mod = missing_module(e, full=True)
+            if mod:
+                # Not a corrupt download: keep the cache, name the module.
+                err = SatEnhanceError(
                     ExitCode.MODEL_UNSUPPORTED,
-                    f"The {family} model '{variant.name}' needs the Python package '{pkg}', which "
-                    f"is not installed in this image. {hint}",
-                ) from e
+                    f"The {family} model '{variant.name}' needs the Python module '{mod}', which "
+                    f"is not available in this image. {module_hint(mod)}{_traceback_tail(e)}",
+                )
+                err.context["module"] = mod
+                raise err from e
             if attempt == 1 and not downloaded_now:
                 log.warning("Cached model failed to load (%s); re-downloading once", e)
                 shutil.rmtree(target, ignore_errors=True)

@@ -32,8 +32,8 @@ COPY docker/pip_retry.sh /usr/local/bin/pip-retry
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
-    pip-retry --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} && pip-retry wheel packaging setuptools \
-    && pip freeze | grep -iE '^(torch|torchvision|triton)==' > /opt/torch-constraints.txt \
+    pip-retry --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} && pip-retry --upgrade "setuptools>=70" packaging \
+    && pip freeze | grep -iE '^(torch|torchvision|triton|setuptools)==' > /opt/torch-constraints.txt \
     && cat /opt/torch-constraints.txt
 # mamba-ssm must be built against the installed torch
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
@@ -60,11 +60,14 @@ RUN python -c "import os,sys,torch; v=torch.version.cuda or ''; want=os.environ[
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 HOME=/tmp HF_HOME=/data/cache/hf \
     SATENHANCE_IMAGE_FLAVOR=gpu MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib \
-    PATH=/opt/venv/bin:$PATH
-RUN apt-get update && apt-get install -y --no-install-recommends python3.11 libexpat1 \
+    TRITON_CACHE_DIR=/data/cache/triton PATH=/opt/venv/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends python3.11 python3.11-dev python3-distutils gcc libc6-dev libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/venv /opt/venv
 RUN useradd -m -u 1000 app && mkdir -p /data/rawdata /data/output /data/cache && chown -R app /data
+# The builder has everything; check the RUNTIME stage too (see docker/check_gpu_runtime.py).
+COPY docker/check_gpu_runtime.py /tmp/check_gpu_runtime.py
+RUN python /tmp/check_gpu_runtime.py && rm /tmp/check_gpu_runtime.py
 USER app
 WORKDIR /data
 ENTRYPOINT ["satenhance-enhance"]

@@ -116,6 +116,13 @@ rm -rf rawdata/* output/*
 expect_rc 0  "synthetic rawdata generator runs in the enhance image" compose_py enhance-cpu -m satenhance_enhance.synthetic --out /data/rawdata
 expect_rc 0  "System 2 runs on the synthetic rawdata" ./scripts/run_system2.sh --cpu
 
+echo "--- GPU image Python packaging (stage split, plain ubuntu:22.04)"
+secret=(); [[ -n "${CA_BUNDLE:-}" ]] && secret=(--secret "id=cabundle,src=$CA_BUNDLE")
+expect_rc 0  "old runtime package set lacks system distutils.core" \
+  docker build -q -f tests/smoke/stage_split.Dockerfile --target runtime-old "${secret[@]}" .
+expect_rc 0  "new runtime package set has distutils, gcc and Python.h" \
+  docker build -q -f tests/smoke/stage_split.Dockerfile --target runtime-new "${secret[@]}" .
+
 echo
 echo "smoke: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

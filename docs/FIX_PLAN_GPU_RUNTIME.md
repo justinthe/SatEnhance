@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Plan only; nothing in this document is implemented yet |
+| **Status** | Implemented (4.1-4.4, 4.6, 4.7 and docs); 4.5 not done, waiting for your go-ahead. Real GPU build/run still to be verified on your machine |
 | **Date** | 2026-09-30 |
 | **Trigger** | `./scripts/run_system2.sh --gpu prefetch --model full` → `ERROR The full model 'rgbn_x4' needs the Python package 'distutils', which is not installed in this image.` |
 
