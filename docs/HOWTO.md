@@ -207,7 +207,7 @@ For place names, add `--yes` (otherwise the run stops with exit code 11 rather t
 |---|---|---|
 | `--run-id ID` | newest | Which folder in `./rawdata` to enhance. Default: whatever `rawdata/LATEST` names |
 | `--in DIR` | – | Explicit path to a rawdata run folder (inside the container) instead of `--run-id` |
-| `--model lite\|full` | `lite` | `lite` = SEN2SR-Lite, runs on CPU or GPU. `full` = the Mamba model; **needs an NVIDIA GPU** and the GPU image. Asking for `full` without one fails with exit 21; it never silently downgrades |
+| `--model lite\|full` | `lite` | `lite` = SEN2SR-Lite, a small CNN that runs on CPU or GPU. `full` = the Mamba-based SEN2SR; **needs an NVIDIA GPU** and the GPU image. Both work for `rgb` (RGB+NIR) and `multispectral` data. Asking for `full` without a GPU fails with exit 21; it never silently downgrades. Download sizes (approx.): Lite ≈ 10 MB per variant; full RGB+NIR ≈ 60 MB; full 10-band ≈ 380 MB |
 | `--variant` | `auto` | `auto` picks from how System 1 was run: `rgb` → `rgbn_x4` (R,G,B,NIR at 10 m → 2.5 m); `multispectral` → `multispectral_x4` (10 bands → 2.5 m). You can force one, but the needed bands must be in the download |
 | `--device auto\|cpu\|cuda` | `auto` | Where to run inference. `cuda` without a GPU fails with exit 21 |
 | `--cog` | off | Write Cloud-Optimised GeoTIFFs (better for web/GIS streaming) |
@@ -307,6 +307,8 @@ Use these in your own scripts (`echo $?`).
 | Exit 5 "the catalogue lists this file but it is not in the bucket" | The asset URLs differ from what this tool expects. Run `probe`: it prints the real asset names and URLs; send me that output |
 | Exit 5 "Cannot reach the S3 endpoint" | Network or proxy problem, or a wrong `CDSE_S3_ENDPOINT` (leave it unset for the default `eodata.dataspace.copernicus.eu`) |
 | `EnvError: GDAL's AWS config options can not be directly set` | Fixed in this version (credentials now go through rasterio's S3 session). `git pull`, `./scripts/build.sh` |
+| Exit 21: "No full-model weights are defined for variant …" | Fixed: the full RGB+NIR model exists (`SEN2SR/NonReference_RGBN_x4`) and is now in the table. `git pull`, `./scripts/build.sh --gpu` |
+| Exit 21: "needs the Python package 'mamba_ssm'" on the CPU image | The full model needs the GPU image: `./scripts/build.sh --gpu-only`, then `./scripts/run_system2.sh --gpu …` |
 | First System 2 run is slow to start | It's downloading model weights. Use `prefetch` once |
 
 ---

@@ -68,7 +68,7 @@ def selftest_variant(variant: str, family: str, device: str, cache: Path) -> Var
 def selftest(family: str, device: str, cache: Path, variants: list[str] | None = None,
              out: Callable[[str], None] = print) -> int:
     """Run the check for each variant. Returns the process exit code (0 = all passed)."""
-    names = variants or [n for n, v in VARIANTS.items() if family == "lite" or v.full_url]
+    names = variants or list(VARIANTS)
     out(f"torch {_torch_version()}  family={family}  device={device}")
     worst = 0
     for name in names:

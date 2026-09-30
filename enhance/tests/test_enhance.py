@@ -185,12 +185,6 @@ def test_cuda_requested_without_gpu_exit_21(raw, tmp_path):
     assert e.value.code == ExitCode.MODEL_UNSUPPORTED
 
 
-def test_full_model_has_no_rgbn_weights():
-    with pytest.raises(SatEnhanceError) as e:
-        models.model_url(VARIANTS["rgbn_x4"], "full")
-    assert e.value.code == ExitCode.MODEL_UNSUPPORTED
-
-
 def test_bad_params_exit_2(raw, tmp_path):
     for kw in (dict(reflectance="x"), dict(overlap=31), dict(block=64), dict(variant="nope")):
         with pytest.raises(SatEnhanceError) as e:

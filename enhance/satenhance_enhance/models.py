@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ class LoadedModel:
     variant: Variant
     source: str
     stub: bool = False
+    dtype: str = "float32"  # dtype of the model's parameters (inputs are cast to match)
 
     @property
     def scale(self) -> int:
@@ -75,14 +77,7 @@ def resolve_device(requested: str, family: str) -> str:
 
 
 def model_url(variant: Variant, family: str) -> str:
-    if family == "full":
-        if not variant.full_url:
-            raise SatEnhanceError(
-                ExitCode.MODEL_UNSUPPORTED,
-                f"No full-model weights are defined for variant '{variant.name}'; use --model lite",
-            )
-        return variant.full_url
-    return variant.lite_url
+    return variant.url(family)
 
 
 def _stub_module(scale: int):
@@ -115,7 +110,36 @@ def load_model(variant_name: str, family: str, device_req: str, cache_root: Path
     target = cache_dir_for(cache_root, variant, family)
     module = _load_from_cache(url, target, device, variant, family)
     module.eval()
-    return LoadedModel(module, device, family, variant, url)
+    return LoadedModel(module, device, family, variant, url, dtype=_param_dtype(module))
+
+
+_MISSING_RE = re.compile(r"No module named '([\w.]+)'|import of ([\w.]+) halted")
+
+
+def missing_module(exc: BaseException | None) -> str | None:
+    """Name of the missing Python package behind an exception, if there is one.
+
+    mlstac runs the model's load.py and re-raises whatever it hits as RuntimeError("Failed to
+    load Python module ...: No module named 'x'"), so the ModuleNotFoundError is only in the
+    exception chain (and in the text). Look in both.
+    """
+    seen = 0
+    while exc is not None and seen < 10:
+        if isinstance(exc, ModuleNotFoundError) and exc.name:
+            return exc.name.split(".")[0]
+        m = _MISSING_RE.search(str(exc))
+        if m:
+            return (m.group(1) or m.group(2)).split(".")[0]
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return None
+
+
+def _param_dtype(module) -> str:
+    try:
+        return str(next(module.parameters()).dtype).replace("torch.", "")
+    except (StopIteration, AttributeError):
+        return "float32"
 
 
 def _torch_version() -> str:
@@ -140,23 +164,33 @@ def _load_from_cache(url: str, target: Path, device: str, variant: Variant, fami
             downloaded_now = True
         try:
             return _load_compiled(target, device)
-        except ModuleNotFoundError as e:
-            raise SatEnhanceError(
-                ExitCode.MODEL_UNSUPPORTED,
-                f"The {family} model '{variant.name}' needs the Python package '{e.name}', which "
-                f"is not installed in this image. Rebuild the image with that package added "
-                f"(see docs/HOWTO.md, Troubleshooting).",
-            ) from e
         except Exception as e:  # noqa: BLE001  (torch/mlstac raise many types)
+            pkg = missing_module(e)
+            if pkg:
+                # Not a corrupt download: keep the cache, name the package.
+                hint = (
+                    "Use the GPU image (./scripts/build.sh --gpu-only): mamba_ssm is installed there."
+                    if pkg == "mamba_ssm" else
+                    "Rebuild the image with that package added (see docs/HOWTO.md, Troubleshooting)."
+                )
+                raise SatEnhanceError(
+                    ExitCode.MODEL_UNSUPPORTED,
+                    f"The {family} model '{variant.name}' needs the Python package '{pkg}', which "
+                    f"is not installed in this image. {hint}",
+                ) from e
             if attempt == 1 and not downloaded_now:
                 log.warning("Cached model failed to load (%s); re-downloading once", e)
                 shutil.rmtree(target, ignore_errors=True)
                 continue
+            extra = ""
+            if isinstance(e.__cause__, ImportError) or "cannot import name" in str(e):
+                extra = (" The installed sen2sr package may not match this model; the image pins "
+                         "sen2sr in enhance/requirements.lock.")
             raise SatEnhanceError(
                 ExitCode.MODEL_UNSUPPORTED,
                 f"The {family} model '{variant.name}' downloaded fine but could not be loaded "
                 f"with torch {_torch_version()} on {device}: {e}. The model files may need a "
-                f"different torch version (see docs/HOWTO.md, Troubleshooting).",
+                f"different torch version (see docs/HOWTO.md, Troubleshooting).{extra}",
             ) from e
     raise AssertionError("unreachable")
 

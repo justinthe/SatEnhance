@@ -66,9 +66,11 @@ def _predict_square(model: LoadedModel, sub: np.ndarray, overlap: int) -> np.nda
     if (h, w) != (side, side):
         sub = np.pad(sub, ((0, 0), (0, side - h), (0, side - w)), mode="reflect")
     x = torch.from_numpy(np.ascontiguousarray(sub)).to(model.device)
+    if model.dtype != "float32":  # e.g. half-precision weights: match the model, convert back below
+        x = x.to(getattr(torch, model.dtype))
     with torch.inference_mode():
         y = sen2sr.predict_large(X=x, model=model.module, overlap=overlap)
-    y = y.numpy()
+    y = y.float().numpy()
     if y.shape[0] != model.out_channels:
         raise SatEnhanceError(
             ExitCode.INFERENCE_FAILURE,

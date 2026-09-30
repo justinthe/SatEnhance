@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import time
 from collections.abc import Callable
@@ -104,6 +105,19 @@ def download_file(url: str, dest: Path, *, session: requests.Session, attempts: 
             sleep(backoff * max(stalls, 1))
 
 
+_HF_REPO_RE = re.compile(r"^(https?://huggingface\.co/)([^/]+/[^/]+)(/.*)$", re.IGNORECASE)
+
+
+def _same_repo_spelling(asset_href: str, model_url: str) -> str:
+    """mlm.json links say `tacofoundation/SEN2SR` while we request `tacofoundation/sen2sr`.
+    Hugging Face repo names are case-insensitive and it redirects, but if it ever did not, every
+    download would 404. Use exactly the spelling of the URL we already reached."""
+    a, m = _HF_REPO_RE.match(asset_href), _HF_REPO_RE.match(model_url)
+    if a and m and a.group(2).lower() == m.group(2).lower():
+        return a.group(1) + m.group(2) + a.group(3)
+    return asset_href
+
+
 def fetch_model(url: str, target: Path, *, session: requests.Session | None = None,
                 attempts: int = 5, backoff: float = 5.0,
                 sleep: Callable[[float], None] = time.sleep) -> Path:
@@ -124,6 +138,7 @@ def fetch_model(url: str, target: Path, *, session: requests.Session | None = No
     for key, asset in item.assets.items():
         name = Path(urlparse(asset.href).path).name
         dest = partial / name
+        asset.href = _same_repo_spelling(asset.href, url)
         if dest.exists() and dest.stat().st_size > 0:
             log.info("model file %s already downloaded", name)
         else:

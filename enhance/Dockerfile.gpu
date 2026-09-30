@@ -59,7 +59,7 @@ RUN python -c "import os,sys,torch; v=torch.version.cuda or ''; want=os.environ[
 
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 HOME=/tmp HF_HOME=/data/cache/hf \
-    SATENHANCE_IMAGE_FLAVOR=gpu \
+    SATENHANCE_IMAGE_FLAVOR=gpu MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib \
     PATH=/opt/venv/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends python3.11 libexpat1 \
     && rm -rf /var/lib/apt/lists/*

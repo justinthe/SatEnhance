@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from satenhance_common.logging import setup_logging
+from satenhance_common.paths import read_latest
 from satenhance_common.report import host_path, write_error_report
 
 app = typer.Typer(add_completion=False, help="SatEnhance System 2: super-resolve Sentinel-2 rawdata.")
@@ -68,7 +69,9 @@ def run(
         log.error("Aborted")
         raise typer.Exit(int(ExitCode.UNEXPECTED)) from None
     except Exception as e:  # noqa: BLE001  (SatEnhanceError and anything unexpected)
-        raise _fail(e, Path(out) / run_id if run_id else Path(out)) from e
+        # Put the report next to the outputs of the run that was being processed (LATEST if no id).
+        rid = run_id or (in_dir.name if in_dir else read_latest(rawdata))
+        raise _fail(e, Path(out) / rid if rid else Path(out)) from e
     print(f"Output written to {result}", file=sys.stderr)
     print(f"SATENHANCE_OUTPUT={result}")
 
@@ -88,7 +91,7 @@ def prefetch(
 
     t0 = time.time()
     try:
-        names = [n for n, v in VARIANTS.items() if model == "lite" or v.full_url]
+        names = list(VARIANTS)
         done = do_prefetch(names, model, cache)
     except Exception as e:  # noqa: BLE001
         raise _fail(e, Path(cache)) from e

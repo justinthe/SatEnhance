@@ -106,6 +106,11 @@ with p.rasterio_env():
     import rasterio; print('ok', rasterio.__version__)
 "
 
+echo "--- real SEN2SR loader scripts inside the enhance image (matplotlib etc.)"
+expect_rc 0  "real Lite loader loads and runs (random weights)" \
+  docker compose --profile gpu run --rm -T -v "$REPO/enhance/tests/real_loaders:/loaders:ro" \
+    --entrypoint python enhance-cpu - < "$REPO/tests/smoke/check_real_loader.py"
+
 echo "--- System 2 helper commands inside the enhance image"
 rm -rf rawdata/* output/*
 expect_rc 0  "synthetic rawdata generator runs in the enhance image" compose_py enhance-cpu -m satenhance_enhance.synthetic --out /data/rawdata

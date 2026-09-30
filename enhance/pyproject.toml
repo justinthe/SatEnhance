@@ -17,6 +17,7 @@ dependencies = [
   "tqdm>=4.66",
   "timm",
   "einops",
+  "matplotlib",  # imported by every SEN2SR model loader script
   "torch",
   "sen2sr",
   "mlstac",
@@ -30,4 +31,6 @@ packages = ["satenhance_enhance"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["live: needs network access to Hugging Face (opt-in: pytest -m live)"]
+addopts = "-m 'not live'"
 filterwarnings = ["ignore::PendingDeprecationWarning", "ignore::DeprecationWarning"]

@@ -11,3 +11,5 @@ sen2sr==0.8.5
 mlstac==0.4.9
 timm==1.0.30
 einops==0.8.2
+# every SEN2SR model loader script imports matplotlib.pyplot at the top
+matplotlib==3.11.2

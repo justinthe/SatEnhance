@@ -11,7 +11,8 @@ ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ARG TORCH_SPEC="torch torchvision"
 
 ENV PIP_CACHE_DIR=/root/.cache/pip PIP_DEFAULT_TIMEOUT=300 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONUNBUFFERED=1 HOME=/tmp \
-    HF_HOME=/data/cache/hf SATENHANCE_IMAGE_FLAVOR=cpu
+    HF_HOME=/data/cache/hf SATENHANCE_IMAGE_FLAVOR=cpu \
+    MPLBACKEND=Agg MPLCONFIGDIR=/tmp/matplotlib
 
 # rasterio wheels need libexpat at runtime (not present in python:*-slim)
 RUN ldconfig -p | grep -q libexpat.so.1 || \

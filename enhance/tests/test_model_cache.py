@@ -250,3 +250,102 @@ def test_wrong_band_count_from_model_is_exit_22():
     with pytest.raises(SatEnhanceError) as e:
         _predict_square(m, np.ones((4, 130, 130), dtype="float32"), 32)
     assert e.value.code == ExitCode.INFERENCE_FAILURE and "returned 3 bands" in e.value.message
+
+
+# ---- missing-package detection, dtype guard, repo spelling, report location -------------------
+def test_missing_module_is_found_in_the_exception_chain_and_text():
+    inner = ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
+    try:
+        try:
+            raise inner
+        except ModuleNotFoundError as e:
+            raise RuntimeError("Failed to load Python module from /x: whatever") from e
+    except RuntimeError as outer:
+        assert models.missing_module(outer) == "matplotlib"
+    # only the text survives (e.g. re-raised as a plain RuntimeError)
+    assert models.missing_module(RuntimeError("... No module named 'mamba_ssm'")) == "mamba_ssm"
+    assert models.missing_module(RuntimeError("import of matplotlib.pyplot halted; None in sys.modules")) == "matplotlib"
+    assert models.missing_module(RuntimeError("unsupported serialization version")) is None
+    assert models.missing_module(None) is None
+
+
+def test_mamba_ssm_hint_points_at_the_gpu_image(tmp_path, monkeypatch):
+    def fake_fetch(url, target, **kw):
+        target.mkdir(parents=True, exist_ok=True)
+        (target / COMPLETE_MARKER).write_text("{}")
+    monkeypatch.setattr(models, "fetch_model", fake_fetch)
+
+    def boom(t, d):
+        raise RuntimeError("Failed to load Python module: No module named 'mamba_ssm'")
+    monkeypatch.setattr(models, "_load_compiled", boom)
+    with pytest.raises(SatEnhanceError) as e:
+        models.load_model("rgbn_x4", "lite", "cpu", tmp_path)
+    assert e.value.code == ExitCode.MODEL_UNSUPPORTED
+    assert "mamba_ssm" in e.value.message and "--gpu-only" in e.value.message
+
+
+def test_missing_package_does_not_wipe_a_good_cache(tmp_path, monkeypatch):
+    target = models.cache_dir_for(tmp_path, VARIANTS["rgbn_x4"], "lite")
+    target.mkdir(parents=True)
+    (target / COMPLETE_MARKER).write_text("{}")
+    (target / "model.safetensor").write_bytes(b"12345")
+    monkeypatch.setattr(models, "fetch_model", lambda *a, **k: pytest.fail("must not re-download"))
+
+    def boom(t, d):
+        raise RuntimeError("No module named 'matplotlib'")
+    monkeypatch.setattr(models, "_load_compiled", boom)
+    with pytest.raises(SatEnhanceError):
+        models.load_model("rgbn_x4", "lite", "cpu", tmp_path)
+    assert (target / "model.safetensor").exists()
+
+
+def test_half_precision_model_gets_matching_input_and_float32_output():
+    import torch
+    from satenhance_enhance.infer import _predict_square
+
+    seen = {}
+
+    class Half(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.ones(1, dtype=torch.float16))
+
+        def forward(self, x):
+            seen["dtype"] = x.dtype
+            return torch.nn.functional.interpolate(x, scale_factor=4) * self.w
+
+    module = Half()
+    assert models._param_dtype(module) == "float16"
+    m = models.LoadedModel(module, "cpu", "lite", VARIANTS["rgbn_x4"], "test", dtype="float16")
+    y = _predict_square(m, np.ones((4, 130, 130), dtype="float32"), 32)
+    assert seen["dtype"] == torch.float16 and y.dtype == np.float32
+
+
+@pytest.mark.parametrize("asset,model,expected", [
+    ("https://huggingface.co/tacofoundation/SEN2SR/resolve/main/SEN2SR/x/model.safetensor",
+     "https://huggingface.co/tacofoundation/sen2sr/resolve/main/SEN2SR/x/mlm.json",
+     "https://huggingface.co/tacofoundation/sen2sr/resolve/main/SEN2SR/x/model.safetensor"),
+    ("https://example.com/other/repo/file.bin", "https://huggingface.co/a/b/resolve/main/mlm.json",
+     "https://example.com/other/repo/file.bin"),
+    ("https://huggingface.co/other/repo/resolve/main/f.bin",
+     "https://huggingface.co/a/b/resolve/main/mlm.json",
+     "https://huggingface.co/other/repo/resolve/main/f.bin"),
+])
+def test_asset_links_use_the_repo_spelling_we_reached(asset, model, expected):
+    from satenhance_enhance.download import _same_repo_spelling
+    assert _same_repo_spelling(asset, model) == expected
+
+
+def test_failed_run_report_goes_to_the_latest_runs_output_folder(tmp_path):
+    from satenhance_enhance.cli import app
+    from satenhance_enhance.synthetic import make_rawdata
+    from typer.testing import CliRunner
+
+    raw = tmp_path / "raw"
+    run = make_rawdata(raw, sensor="rgb", size=32)
+    # ask for a variant the rgb data cannot satisfy -> a real, non-trivial failure after run lookup
+    r = CliRunner().invoke(app, ["run", "--rawdata", str(raw), "--out", str(tmp_path / "out"),
+                                 "--cache", str(tmp_path / "c"), "--variant", "multispectral_x4"])
+    assert r.exit_code == 20
+    assert (tmp_path / "out" / run.name / "error_report.json").exists()  # not out/error_report.json
+    assert not (tmp_path / "out" / "error_report.json").exists()
