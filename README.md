@@ -55,6 +55,8 @@ Without a terminal (cron, CI) `--non-interactive` is added automatically.
 
 **Why only `rgb` / `multispectral`?** Sentinel-2 is multispectral, not hyperspectral, and no Sentinel satellite produces LiDAR. Sentinel-1 is radar (SAR) and SEN2SR only works on Sentinel-2, so Sentinel-1 is not in v1.
 
+**AOIs that cross a tile edge** are handled: tiles from the same satellite pass are mosaicked into one seamless scene (never a blend of different dates), and `manifest.json` (schema 1.1) records which tiles were used. See `docs/HOWTO.md`.
+
 **When no scene matches** (e.g. too cloudy) an interactive run shows the nearest candidates and offers to raise the cloud limit and/or widen the dates, with suggestions taken from the catalogue. A non-interactive run exits with code **10** and writes `rawdata/<run_id>/no_data_report.json` containing the same suggestions.
 
 ## System 2 parameters

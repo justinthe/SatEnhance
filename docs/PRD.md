@@ -35,7 +35,7 @@ Sentinel-2 is free and frequent, but its 10 m pixels are too coarse for many GIS
 - LiDAR and hyperspectral data. Sentinel satellites do not provide LiDAR. Sentinel-2 is multispectral (13 bands), not hyperspectral. See §6.
 - **Sentinel-1 (SAR) altogether** — dropped from v1 by decision. SEN2SR is built for Sentinel-2 (see §9.1), so SAR could only ever be download-only. `--sensor sar` is rejected with a clear message.
 - Web UI or REST API (interface decision: CLI + shell scripts only).
-- Cloud-free compositing / mosaicking across dates (decision: single best scene).
+- Cloud-free compositing across *dates*. (Joining tiles from the **same satellite pass** is in scope, see §8.2.)
 - Real-time or streaming acquisition. Despite the repo README's "real time" wording, v1 is batch.
 - Sub-meter output. SEN2SR's documented output is **2.5 m** (see §8.1). The current repo README claims "sub-meter", which should be corrected.
 
@@ -61,7 +61,7 @@ Sentinel-2 is free and frequent, but its 10 m pixels are too coarse for many GIS
 | Compute | Both GPU and CPU image variants |
 | Text AOI geocoding | Nominatim (OpenStreetMap), user confirms the match |
 | Large AOIs | Configurable max area + tiled inference with overlap |
-| Scene selection | Single best scene (lowest cloud cover, most recent as tiebreaker) |
+| Scene selection | Single best pass: lowest AOI cloud, most recent as tiebreaker. If the AOI spans several tiles, the tiles from that pass are mosaicked (decision Q2, 2026-09-30) |
 | No-data handling | Interactive prompt, plus `--non-interactive` mode with distinct exit code and JSON report |
 
 ## 5. System overview
@@ -175,6 +175,7 @@ The resolver tries by extension first, then falls back to OGR auto-detection. An
 3. Also require the AOI to be fully covered by the scene (or report the covered percentage). Partial coverage below 100% is a warning, and below a configurable minimum (default 95%) a rejection.
 4. Rank: lowest AOI-local cloud fraction first; ties broken by most recent acquisition date.
 5. Select **one** scene. Record the runners-up in the manifest.
+6. **Multi-tile AOIs (mosaic).** Candidates are first grouped into *acquisitions*: tiles with the same platform and relative orbit whose sensing times are within 10 minutes (a single tile is a group of one; at most 4 tiles). Each acquisition is scored **as a mosaic**: for every pixel the clearest tile wins (clear beats cloudy beats no data; ties go to the tile whose AOI is clearer), and all bands use the same tile for a given pixel. Tiles on the same UTM lattice are copied without resampling; others are reprojected onto the lattice of the most common tile CRS (bilinear for reflectance, nearest-neighbour for the class map). If tiles carry different processing-baseline offsets, DNs are converted to one convention. If only one tile ends up supplying pixels, the result is an ordinary single-tile scene. When coverage is the reason for rejection (rather than cloud), the no-data report and menu say so and offer to lower `--min-coverage`.
 
 ### 8.3 Download and preparation
 - Download only the required bands (not the full SAFE archive) and only the window covering the AOI where the source supports range reads (COGs / JP2 windowed reads).
@@ -279,7 +280,7 @@ Super-resolution output is **model-predicted detail**, not measured data. It is 
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "run_id": "20260929T134600_perth-city",
   "created_utc": "2026-09-29T13:46:00Z",
   "query": {

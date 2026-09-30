@@ -30,37 +30,57 @@ def build_fixture(
     size_10m: int = 400,
     seed: int = 0,
 ) -> Path:
-    """Create scene rasters + index. Each scene dict: id, datetime, tile_cloud, baseline,
-    scl_cloud_frac (fraction of SCL pixels flagged as cloud, default 0)."""
+    """Create scene rasters + index.
+
+    Each scene dict: id, datetime, tile_cloud; optional baseline, scl_cloud_frac (fraction of
+    SCL columns flagged cloud, counted from `scl_cloud_side`), origin / crs / size_10m to place a
+    tile elsewhere (multi-tile scenarios), noise (default 30; 0 gives values that depend only on
+    world coordinates, so tiles agree exactly where they overlap), and platform / relative_orbit /
+    tile_id to make tiles groupable into one pass.
+    """
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     index = []
     for sc in scenes:
+        o = tuple(sc.get("origin", origin))
+        c = sc.get("crs", crs)
+        n10 = sc.get("size_10m", size_10m)
+        noise = sc.get("noise", 30)
         bands = {}
-        for b in ALL_BANDS:
+        for bi, b in enumerate(ALL_BANDS):
             res = 10 if b in ("B02", "B03", "B04", "B08") else 20
-            n = size_10m * 10 // res
-            t = from_origin(origin[0], origin[1], res, res)
+            n = n10 * 10 // res
+            t = from_origin(o[0], o[1], res, res)
             if b == "SCL":
                 arr = np.full((n, n), 4, dtype="uint8")  # vegetation
                 k = int(sc.get("scl_cloud_frac", 0.0) * n)
-                arr[:, :k] = 9  # cloud columns
+                if k:
+                    if sc.get("scl_cloud_side", "left") == "left":
+                        arr[:, :k] = 9
+                    else:
+                        arr[:, n - k:] = 9
                 dtype, nodata = "uint8", 0
             else:
-                yy, xx = np.mgrid[0:n, 0:n]
-                base = 1000 + 2000 * (xx + yy) / (2 * n)
-                arr = (base + rng.normal(0, 30, (n, n))).clip(1, 10000).astype("uint16")
+                # value depends on the world pixel index, so overlapping tiles agree
+                cols = int(round(o[0] / res)) + np.arange(n)
+                rows = int(round(o[1] / res)) - np.arange(n)
+                base = 1000 + ((cols[None, :] * 7 + rows[:, None] * 13 + bi * 101) % 4000)
+                arr = (base + (rng.normal(0, noise, (n, n)) if noise else 0)).clip(1, 10000)
+                arr = arr.astype("uint16")
                 dtype, nodata = "uint16", 0
             path = root / f"{sc['id']}_{b}.tif"
             with rasterio.open(
                 path, "w", driver="GTiff", height=n, width=n, count=1, dtype=dtype,
-                crs=crs, transform=t, nodata=nodata,
+                crs=c, transform=t, nodata=nodata,
             ) as dst:
                 dst.write(arr, 1)
             bands[b] = str(path)
-        index.append({**{k: sc[k] for k in ("id", "datetime", "tile_cloud")},
-                      "baseline": sc.get("baseline", "05.11"), "bands": bands})
+        index.append({
+            **{k: sc[k] for k in ("id", "datetime", "tile_cloud")},
+            "baseline": sc.get("baseline", "05.11"), "bands": bands,
+            **{k: sc[k] for k in ("platform", "relative_orbit", "tile_id") if k in sc},
+        })
     (root / INDEX).write_text(json.dumps(index, indent=2))
     return root
 
@@ -90,6 +110,10 @@ class FixtureProvider:
                 out.append(Candidate(
                     id=sc["id"], datetime=sc["datetime"], tile_cloud=sc["tile_cloud"],
                     processing_baseline=sc.get("baseline"), assets=sc["bands"],
+                    platform=sc.get("platform"),
+                    relative_orbit=None if sc.get("relative_orbit") is None
+                    else str(sc["relative_orbit"]),
+                    tile_id=sc.get("tile_id"),
                 ))
         return out[:limit]
 

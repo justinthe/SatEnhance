@@ -1,6 +1,6 @@
 """Runs INSIDE the enhance container: asserts the enhanced output is geometrically sane.
 
-usage: python - <run_id>
+usage: python - <run_id> [expected scene id prefix, default SMOKE_B]
 """
 
 import json
@@ -10,6 +10,7 @@ from pathlib import Path
 import rasterio
 
 run_id = sys.argv[1]
+expected_scene = sys.argv[2] if len(sys.argv) > 2 else "SMOKE_B"
 raw = Path("/data/rawdata") / run_id
 out = Path("/data/output") / run_id
 man = json.loads((raw / "manifest.json").read_text())
@@ -26,5 +27,5 @@ for name in ("preview_before_after.png", "enhance_report.json"):
     assert (out / name).stat().st_size > 0, name
 rep = json.loads((out / "enhance_report.json").read_text())
 assert rep["stub_model"] is True and rep["output_pixel_size_m"] == 2.5
-assert scene == "SMOKE_B", scene  # same cloud as A, more recent
+assert scene.startswith(expected_scene), scene  # SMOKE_B: same cloud as A, more recent
 print(f"OK {run_id}: {dst.width}x{dst.height} @ 2.5 m")

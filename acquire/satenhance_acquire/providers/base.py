@@ -18,6 +18,10 @@ class Candidate:
     assets: dict[str, str]  # band name (B04, SCL, ...) -> href
     footprint: dict | None = None
     properties: dict = field(default_factory=dict)
+    # Used to group tiles from the same satellite pass into one mosaic (all optional)
+    platform: str | None = None  # e.g. "sentinel-2a"
+    relative_orbit: str | None = None
+    tile_id: str | None = None  # e.g. MGRS tile "50HMK"
 
 
 class Provider(Protocol):

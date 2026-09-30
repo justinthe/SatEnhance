@@ -1,30 +1,30 @@
-"""Scene selection using AOI-local cloud fraction from the SCL band (PRD section 8.2)."""
+"""Scene selection using AOI-local cloud fraction from the SCL band (PRD section 8.2).
+
+Candidates are first grouped into acquisitions (one or more tiles from the same satellite
+pass, see mosaic.py). Each acquisition is scored *as a mosaic*, so an AOI split across two
+tiles is judged on the joined result rather than rejected tile by tile.
+"""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
-import numpy as np
-import rasterio
-from rasterio.features import geometry_mask
-from rasterio.windows import Window
-from rasterio.windows import transform as win_transform
-from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry.base import BaseGeometry
 
+from .mosaic import Acquisition, MosaicPlan, group_candidates, plan_mosaic
 from .providers.base import Candidate, Provider
-from .raster import aoi_in_crs
 
 log = logging.getLogger(__name__)
 
-# SCL classes: 3 cloud shadow, 8 cloud medium prob, 9 cloud high prob, 10 thin cirrus
-CLOUD_CLASSES = (3, 8, 9, 10)
 SHORTLIST = 5
 MAX_ASSESS = 15
 # Tile-level cloud is only a coarse prefilter; look a bit wider than the AOI limit.
 SEARCH_CLOUD_MARGIN = 30.0
+
+REASON_CLOUD = "cloud"
+REASON_COVERAGE = "coverage"
 
 
 @dataclass
@@ -36,48 +36,23 @@ class Assessment:
     aoi_cloud_fraction: float | None = None  # percent of covered AOI pixels that are cloud
     status: str = "not_assessed"  # ok | rejected | not_assessed
     reason: str | None = None
+    reason_kind: str | None = None  # "cloud" | "coverage" when rejected
+    tiles: list[str] = field(default_factory=list)
+    # Not serialised: kept so the download step does not re-read the SCL bands.
+    acq: Acquisition | None = field(default=None, repr=False, compare=False)
+    plan: MosaicPlan | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {
+            "id": self.id, "datetime": self.datetime, "tile_cloud": self.tile_cloud,
+            "aoi_coverage": self.aoi_coverage, "aoi_cloud_fraction": self.aoi_cloud_fraction,
+            "status": self.status, "reason": self.reason, "reason_kind": self.reason_kind,
+            "tiles": self.tiles,
+        }
 
 
 def _ts(iso: str) -> float:
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
-
-
-def measure_scl(provider: Provider, cand: Candidate, aoi: BaseGeometry) -> tuple[float, float]:
-    """Return (coverage %, cloud %) of the AOI from the SCL band."""
-    try:
-        with rasterio.Env(**provider.gdal_env()), rasterio.open(provider.href(cand, "SCL")) as src:
-            geom = aoi_in_crs(aoi, src.crs)
-            b = geom.bounds
-            win = rasterio.windows.from_bounds(*b, transform=src.transform)
-            win = Window(
-                int(np.floor(win.col_off)), int(np.floor(win.row_off)),
-                max(int(np.ceil(win.width)), 1), max(int(np.ceil(win.height)), 1),
-            )
-            scl = src.read(1, window=win, boundless=True, fill_value=0)
-            inside = ~geometry_mask(
-                [geom], out_shape=scl.shape, transform=win_transform(win, src.transform),
-                all_touched=True,
-            )
-    except SatEnhanceError:
-        raise
-    except rasterio.errors.RasterioIOError as e:
-        text = str(e)
-        if any(s in text for s in ("403", "401", "AccessDenied", "InvalidAccessKeyId", "Forbidden")):
-            raise SatEnhanceError(ExitCode.AUTH_FAILURE, f"Access denied reading {cand.id}: {e}") from e
-        raise SatEnhanceError(ExitCode.NETWORK_FAILURE, f"Could not read SCL for {cand.id}: {e}") from e
-    n_aoi = int(inside.sum())
-    if n_aoi == 0:
-        return 0.0, 100.0
-    covered = inside & (scl != 0)
-    n_cov = int(covered.sum())
-    coverage = 100.0 * n_cov / n_aoi
-    if n_cov == 0:
-        return 0.0, 100.0
-    cloudy = covered & np.isin(scl, CLOUD_CLASSES)
-    return coverage, 100.0 * int(cloudy.sum()) / n_cov
 
 
 def select_best(
@@ -89,34 +64,48 @@ def select_best(
     min_coverage: float,
     shortlist: int = SHORTLIST,
     max_assess: int = MAX_ASSESS,
-) -> tuple[Candidate | None, list[Assessment], list[Assessment]]:
-    """Returns (best candidate | None, all assessments, passing assessments ranked)."""
+) -> tuple[Acquisition | None, list[Assessment], list[Assessment]]:
+    """Returns (best acquisition | None, all assessments, passing assessments ranked)."""
+    groups = group_candidates(candidates, aoi)
     ordered = sorted(
-        candidates,
-        key=lambda c: (c.tile_cloud if c.tile_cloud is not None else 100.0, -_ts(c.datetime)),
+        groups,
+        key=lambda g: (g.tile_cloud if g.tile_cloud is not None else 100.0, -_ts(g.datetime)),
     )
-    by_id = {c.id: c for c in candidates}
     assessments = [
-        Assessment(c.id, c.datetime, c.tile_cloud) for c in ordered
+        Assessment(g.id, g.datetime, g.tile_cloud, tiles=[t.id for t in g.tiles], acq=g)
+        for g in ordered
     ]
     passing: list[Assessment] = []
     done = 0
     for a in assessments:
         if done >= max_assess or (done >= shortlist and passing):
             break
-        cand = by_id[a.id]
-        cov, cloud = measure_scl(provider, cand, aoi)
-        a.aoi_coverage, a.aoi_cloud_fraction = round(cov, 2), round(cloud, 2)
+        plan = plan_mosaic(provider, aoi, a.acq)
+        contributing = [st.id for st in plan.stats if st.coverage_pct > 0]
+        if len(contributing) == 1 and len(a.acq.tiles) > 1:
+            # Only one tile of the pass actually supplies pixels: it is an ordinary scene.
+            tile = next(t for t in a.acq.tiles if t.id == contributing[0])
+            a.acq = Acquisition(tile.id, [tile])
+            a.id, a.tiles = tile.id, [tile.id]
+        a.plan = plan
+        a.aoi_coverage, a.aoi_cloud_fraction = round(plan.coverage, 2), round(plan.cloud, 2)
         done += 1
-        if cov < min_coverage:
-            a.status, a.reason = "rejected", f"AOI coverage {cov:.1f}% < {min_coverage:g}%"
-        elif cloud > max_cloud:
-            a.status, a.reason = "rejected", f"AOI cloud {cloud:.1f}% > {max_cloud:g}%"
+        n = len(a.acq.tiles)
+        if plan.coverage < min_coverage:
+            a.status, a.reason_kind = "rejected", REASON_COVERAGE
+            a.reason = (
+                f"AOI coverage {plan.coverage:.1f}% < {min_coverage:g}%"
+                + (f" even after mosaicking {n} tiles" if n > 1 else "")
+            )
+        elif plan.cloud > max_cloud:
+            a.status, a.reason_kind = "rejected", REASON_CLOUD
+            a.reason = f"AOI cloud {plan.cloud:.1f}% > {max_cloud:g}%"
         else:
             a.status = "ok"
-            if cov < 100:
-                log.warning("Scene %s covers only %.1f%% of the AOI", a.id, cov)
+            if plan.coverage < 100:
+                log.warning("Scene %s covers only %.1f%% of the AOI", a.id, plan.coverage)
+            if n > 1:
+                log.info("Scene %s is a mosaic of %d tiles", a.id, n)
             passing.append(a)
     passing.sort(key=lambda a: (round(a.aoi_cloud_fraction, 1), -_ts(a.datetime)))
-    best = by_id[passing[0].id] if passing else None
-    return best, assessments, passing
+    return (passing[0].acq if passing else None), assessments, passing

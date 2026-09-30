@@ -64,6 +64,8 @@ def item_to_candidate(item: Any) -> Candidate:
             if key in item.assets:
                 assets[band] = item.assets[key].href
                 break
+    orbit = props.get("sat:relative_orbit", props.get("s2:relative_orbit"))  # [VERIFY name]
+    tile = props.get("grid:code") or props.get("s2:mgrs_tile")
     return Candidate(
         id=item.id,
         datetime=props.get("datetime") or props.get("start_datetime") or "",
@@ -72,6 +74,9 @@ def item_to_candidate(item: Any) -> Candidate:
         assets=assets,
         footprint=item.geometry,
         properties={k: props[k] for k in ("platform", "s2:tile_id", "grid:code") if k in props},
+        platform=props.get("platform"),
+        relative_orbit=None if orbit is None else str(orbit),
+        tile_id=None if tile is None else str(tile),
     )
 
 

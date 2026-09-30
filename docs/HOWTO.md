@@ -175,6 +175,8 @@ For place names, add `--yes` (otherwise the run stops with exit code 11 rather t
 
 **Rejected sensors:** `lidar` (no Sentinel satellite provides it), `hyperspectral` (Sentinel-2 is multispectral), `sar` / Sentinel-1 (not in v1). You get exit code 2 and an explanation.
 
+**AOIs that cross a tile edge are mosaicked.** A Sentinel-2 tile is about 110 km wide. If your AOI straddles two or more tiles, the tiles captured on the *same satellite pass* (same satellite and orbit, within minutes of each other) are joined into one seamless scene: for every pixel the clearest tile is used. This is not a blend of different dates. Tiles in the same UTM zone are copied without resampling; tiles from a neighbouring zone are reprojected. The scene id then looks like `MOSAIC_S2A_20260110T023100_R74_2T`, and `manifest.json` (schema 1.1) lists the tiles used under `scene.tiles`. At most 4 tiles are joined.
+
 **How the scene is chosen:** the catalogue is searched for scenes intersecting your AOI in the date range, then the cloud fraction and coverage *over your AOI* are measured for the best candidates. The scene with the lowest AOI cloud wins; ties go to the most recent. One scene per run.
 
 **If nothing matches** (interactive): you're shown the closest candidates and a menu — raise the cloud limit, widen the dates, both, enter values manually, or quit. The suggested values come from what actually exists in the catalogue. **Non-interactive:** exit code 10 and `rawdata/<run_id>/no_data_report.json` with the same suggestions.
@@ -216,7 +218,7 @@ rawdata/
     ├── aoi.geojson                          # your AOI, cleaned up (WGS84, one geometry)
     ├── search_results.json                  # every scene considered, its AOI cloud/coverage, why rejected
     ├── no_data_report.json                  # only when nothing matched (exit 10)
-    └── S2_<scene_id>/
+    └── S2_<scene_id>/                        # scene_id is MOSAIC_… when tiles were joined
         ├── B02.tif  B03.tif  B04.tif  B08.tif    # (+ B05 B06 B07 B8A B11 B12 for multispectral)
         └── SCL.tif                               # scene classification (cloud mask), 20 m
 

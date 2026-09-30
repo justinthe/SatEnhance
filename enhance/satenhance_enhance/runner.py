@@ -134,7 +134,8 @@ def enhance(p: EnhanceParams) -> Path:
     write_report(
         out_dir / "enhance_report.json",
         tool_version=__version__, run_id=man.run_id, scene=man.scene.id,
-        sensor=man.query.sensor, variant=variant_name, model_family=p.family,
+        sensor=man.query.sensor, mosaic=man.scene.mosaic,
+        source_tiles=[t.id for t in man.scene.tiles], variant=variant_name, model_family=p.family,
         model_source=model.source, stub_model=model.stub, device=model.device,
         sen2sr_version=sen2sr_version, torch_version=torch.__version__,
         input_shape=[h, w], output_shape=list(out_shape), output_pixel_size_m=out_res[0],

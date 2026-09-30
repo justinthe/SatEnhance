@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .exit_codes import ExitCode, SatEnhanceError
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+SUPPORTED_SCHEMA_VERSIONS = ("1.0", "1.1")  # 1.1 adds Scene.tiles / Scene.mosaic
 MANIFEST_NAME = "manifest.json"
 
 Sensor = Literal["rgb", "multispectral"]
@@ -38,6 +39,15 @@ class Aoi(BaseModel):
     area_km2: float
 
 
+class TileInfo(BaseModel):
+    """One Sentinel-2 tile that contributed pixels to the scene (1.1)."""
+
+    id: str
+    crs: str
+    resampled: bool = False  # True if any band was reprojected onto the scene grid
+    coverage_pct: float | None = None  # share of the AOI for which this tile supplied pixels
+
+
 class Scene(BaseModel):
     mission: str = "sentinel-2"
     product: str = "L2A"
@@ -48,6 +58,8 @@ class Scene(BaseModel):
     aoi_coverage: float
     processing_baseline: str | None = None
     bands: dict[str, BandInfo]
+    tiles: list[TileInfo] = Field(default_factory=list)
+    mosaic: bool = False  # True when several tiles from one pass were joined
 
 
 class Alternate(BaseModel):
@@ -88,6 +100,14 @@ def load(run_dir_or_file: Path, *, code: ExitCode = ExitCode.ENHANCE_INPUT_INVAL
     if not p.exists():
         raise SatEnhanceError(code, f"Manifest not found: {p}")
     try:
-        return Manifest.model_validate(json.loads(p.read_text()))
+        data = json.loads(p.read_text())
+        version = data.get("schema_version") if isinstance(data, dict) else None
+        if version is not None and version not in SUPPORTED_SCHEMA_VERSIONS:
+            raise SatEnhanceError(
+                code,
+                f"Manifest {p} has schema_version {version}; this version reads "
+                f"{', '.join(SUPPORTED_SCHEMA_VERSIONS)}. Update SatEnhance.",
+            )
+        return Manifest.model_validate(data)
     except (json.JSONDecodeError, ValidationError) as e:
         raise SatEnhanceError(code, f"Invalid manifest {p}: {e}") from e

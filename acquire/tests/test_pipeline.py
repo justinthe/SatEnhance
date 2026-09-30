@@ -81,7 +81,8 @@ def test_multispectral_bands_and_resume(tmp_path, provider, aoi_file):
     from satenhance_acquire.download import download_scene
     cand = next(c for c in provider.search(fixture_aoi(), date(2026, 1, 1), date(2026, 1, 31), 100)
                 if c.id == man.scene.id)
-    download_scene(provider, cand, fixture_aoi(), "multispectral", scene_dir)
+    from satenhance_acquire.mosaic import group_candidates
+    download_scene(provider, group_candidates([cand])[0], fixture_aoi(), "multispectral", scene_dir)
     assert f.stat().st_mtime_ns == mtime  # complete files are skipped
 
 
@@ -157,10 +158,10 @@ def test_no_data_interactive_quit(tmp_path, provider, aoi_file):
 def test_retry_menu_manual_entry():
     diag = nodata.Diagnosis(query={"start": "2026-01-01", "end": "2026-01-31", "max_cloud": 5},
                             searched_candidates=0)
-    answers = iter(["4", "abc", "4", "30", "2026-01-02", "2026-01-20"])
-    c, s, e = nodata.retry_menu(diag, date(2026, 1, 1), date(2026, 1, 31), 5, "x",
-                                input_fn=lambda p: next(answers), today=date(2026, 6, 1))
-    assert (c, s, e) == (30.0, date(2026, 1, 2), date(2026, 1, 20))
+    answers = iter(["4", "abc", "4", "30", "2026-01-02", "2026-01-20", "80"])
+    c, s, e, mc = nodata.retry_menu(diag, date(2026, 1, 1), date(2026, 1, 31), 5, 95, "x",
+                                    input_fn=lambda p: next(answers), today=date(2026, 6, 1))
+    assert (c, s, e, mc) == (30.0, date(2026, 1, 2), date(2026, 1, 20), 80.0)
 
 
 @pytest.mark.parametrize(

@@ -198,6 +198,18 @@
           },
           "title": "Bands",
           "type": "object"
+        },
+        "tiles": {
+          "items": {
+            "$ref": "#/$defs/TileInfo"
+          },
+          "title": "Tiles",
+          "type": "array"
+        },
+        "mosaic": {
+          "default": false,
+          "title": "Mosaic",
+          "type": "boolean"
         }
       },
       "required": [
@@ -209,12 +221,48 @@
       ],
       "title": "Scene",
       "type": "object"
+    },
+    "TileInfo": {
+      "description": "One Sentinel-2 tile that contributed pixels to the scene (1.1).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "crs": {
+          "title": "Crs",
+          "type": "string"
+        },
+        "resampled": {
+          "default": false,
+          "title": "Resampled",
+          "type": "boolean"
+        },
+        "coverage_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage Pct"
+        }
+      },
+      "required": [
+        "id",
+        "crs"
+      ],
+      "title": "TileInfo",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "1.0",
+      "default": "1.1",
       "title": "Schema Version",
       "type": "string"
     },

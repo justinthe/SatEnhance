@@ -61,3 +61,31 @@ def test_redaction(monkeypatch):
     rec = logging.LogRecord("x", logging.INFO, "", 0, "token=supersecretvalue", (), None)
     RedactFilter().filter(rec)
     assert "supersecretvalue" not in rec.getMessage()
+
+
+def test_schema_1_0_manifest_still_loads(tmp_path):
+    m = _manifest()
+    data = json.loads(m.model_dump_json())
+    data["schema_version"] = "1.0"
+    del data["scene"]["tiles"], data["scene"]["mosaic"]  # a 1.0 manifest has neither
+    (tmp_path / "manifest.json").write_text(json.dumps(data))
+    loaded = mf.load(tmp_path)
+    assert loaded.scene.tiles == [] and loaded.scene.mosaic is False
+
+
+def test_unknown_schema_version_rejected(tmp_path):
+    data = json.loads(_manifest().model_dump_json())
+    data["schema_version"] = "2.0"
+    (tmp_path / "manifest.json").write_text(json.dumps(data))
+    with pytest.raises(SatEnhanceError) as e:
+        mf.load(tmp_path)
+    assert "2.0" in e.value.message
+
+
+def test_tiles_roundtrip(tmp_path):
+    m = _manifest()
+    m.scene.tiles = [mf.TileInfo(id="T1", crs="EPSG:32750", resampled=False, coverage_pct=60.0),
+                     mf.TileInfo(id="T2", crs="EPSG:32751", resampled=True, coverage_pct=40.0)]
+    m.scene.mosaic = True
+    mf.save(m, tmp_path)
+    assert mf.load(tmp_path) == m

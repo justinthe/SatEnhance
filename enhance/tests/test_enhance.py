@@ -248,3 +248,15 @@ def test_cli_shorthand_and_exit_codes(raw, tmp_path, monkeypatch):
     r = CliRunner().invoke(app, ["run", "--rawdata", str(tmp_path / "raw"), "--model", "full",
                                  "--out", str(tmp_path / "out"), "--cache", str(tmp_path / "c")])
     assert r.exit_code == 21
+
+
+def test_report_records_mosaic_tiles_and_reads_manifest_1_1(raw, tmp_path):
+    from satenhance_common import manifest as mfm
+    man = mfm.load(raw)
+    man.scene.mosaic = True
+    man.scene.tiles = [mfm.TileInfo(id="T1", crs="EPSG:32750", coverage_pct=60.0),
+                       mfm.TileInfo(id="T2", crs="EPSG:32750", coverage_pct=40.0)]
+    mfm.save(man, raw)
+    out = enhance(params(tmp_path))
+    rep = json.loads((out / "enhance_report.json").read_text())
+    assert rep["mosaic"] is True and rep["source_tiles"] == ["T1", "T2"]

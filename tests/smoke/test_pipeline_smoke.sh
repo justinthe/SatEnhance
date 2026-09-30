@@ -81,6 +81,15 @@ expect_rc 10 "pipeline propagates exit 10 (no data)" ./scripts/run_pipeline.sh -
 [[ -z "$(ls -A output)" ]] && { echo "PASS  System 2 not run after System 1 failure"; pass=$((pass+1)); } \
   || { echo "FAIL  output/ not empty after failed System 1"; fail=$((fail+1)); }
 
+echo "--- mosaic: AOI straddling two tiles of one pass"
+rm -rf rawdata/* output/*
+expect_rc 0  "run_pipeline.sh mosaics two tiles and enhances the result" \
+  env SATENHANCE_FIXTURE_DIR=/data/cache/fixture_mosaic ./scripts/run_pipeline.sh --cpu \
+    --aoi-file cache/smoke/straddle.geojson --start 2026-01-01 --end 2026-01-31 --max-cloud 10
+RUN3="$(tr -d '\r\n' < rawdata/LATEST)"
+expect_rc 0  "manifest 1.1 lists both tiles, no holes at the seam" compose_py acquire - "$RUN3" < "$REPO/tests/smoke/check_mosaic.py"
+expect_rc 0  "enhanced mosaic is geometrically sane" compose_py enhance-cpu - "$RUN3" MOSAIC_ < "$REPO/tests/smoke/check_output.py"
+
 echo "--- System 2 helper commands inside the enhance image"
 rm -rf rawdata/* output/*
 expect_rc 0  "synthetic rawdata generator runs in the enhance image" compose_py enhance-cpu -m satenhance_enhance.synthetic --out /data/rawdata

@@ -93,36 +93,43 @@ def acquire(
     run_dir.mkdir(parents=True, exist_ok=True)
     aoi_mod.write_aoi(aoi_res, run_dir / "aoi.geojson")
 
-    start, end, max_cloud = p.start, p.end, p.max_cloud
+    start, end, max_cloud, min_coverage = p.start, p.end, p.max_cloud, p.min_coverage
     while True:
         cands = provider.search(
             aoi_res.geometry, start, end, min(100.0, max_cloud + SEARCH_CLOUD_MARGIN)
         )
         log.info("%d candidate scene(s) in catalogue", len(cands))
         best, assessments, passing = select_best(
-            provider, aoi_res.geometry, cands, max_cloud=max_cloud, min_coverage=p.min_coverage
+            provider, aoi_res.geometry, cands, max_cloud=max_cloud, min_coverage=min_coverage
         )
         (run_dir / "search_results.json").write_text(
             json.dumps([a.to_dict() for a in assessments], indent=2)
         )
         if best is not None:
             break
-        diag = nodata.diagnose(provider, aoi_res.geometry, start, end, max_cloud, assessments)
+        diag = nodata.diagnose(
+            provider, aoi_res.geometry, start, end, max_cloud, assessments, min_coverage
+        )
         if not p.interactive:
             msg = nodata.explain(diag, label)
             path = nodata.write_report(diag, run_dir, msg)
             raise SatEnhanceError(ExitCode.NO_DATA, f"{msg} Report: {path}")
-        max_cloud, start, end = nodata.retry_menu(diag, start, end, max_cloud, label, input_fn)
+        max_cloud, start, end, min_coverage = nodata.retry_menu(
+            diag, start, end, max_cloud, min_coverage, label, input_fn
+        )
 
-    log.info("Selected %s (AOI cloud %.1f%%)", best.id, passing[0].aoi_cloud_fraction)
+    log.info("Selected %s (AOI cloud %.1f%%, coverage %.1f%%)", best.id,
+             passing[0].aoi_cloud_fraction, passing[0].aoi_coverage)
     scene_dir = run_dir / f"S2_{best.id}"
-    bands = download_scene(provider, best, aoi_res.geometry, p.sensor, scene_dir)
+    bands, tiles = download_scene(
+        provider, best, aoi_res.geometry, p.sensor, scene_dir, plan=passing[0].plan
+    )
     man = build_manifest(
         run_id=run_id, aoi_source=aoi_res.source, aoi=aoi_res.geometry,
         start=start.isoformat(), end=end.isoformat(), max_cloud=max_cloud, sensor=p.sensor,
-        cand=best, best=passing[0], alternates=passing[1:] + [
+        acq=best, best=passing[0], alternates=passing[1:] + [
             a for a in assessments if a.status == "rejected"
-        ], bands=bands,
+        ], bands=bands, tiles=tiles,
     )
     mf.save(man, run_dir)
     write_latest(Path(p.out_dir), run_id)
