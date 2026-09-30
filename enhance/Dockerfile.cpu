@@ -11,7 +11,7 @@ ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ARG TORCH_SPEC="torch torchvision"
 
 ENV PIP_CACHE_DIR=/root/.cache/pip PIP_DEFAULT_TIMEOUT=300 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONUNBUFFERED=1 HOME=/tmp \
-    HF_HOME=/data/cache/hf
+    HF_HOME=/data/cache/hf SATENHANCE_IMAGE_FLAVOR=cpu
 
 # rasterio wheels need libexpat at runtime (not present in python:*-slim)
 RUN ldconfig -p | grep -q libexpat.so.1 || \
@@ -24,7 +24,7 @@ RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
     pip-retry --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} \
-    && pip freeze | grep -iE '^(torch|torchvision)==' > /opt/torch-constraints.txt \
+    && pip freeze | grep -iE '^(torch|torchvision|triton)==' > /opt/torch-constraints.txt \
     && cat /opt/torch-constraints.txt
 
 WORKDIR /src

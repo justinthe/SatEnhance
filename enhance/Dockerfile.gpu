@@ -15,9 +15,14 @@ ARG TORCH_SPEC="torch torchvision"
 # CUDA 12.4 torch with a CUDA 13 build (seen in a real build log). Stay on the 2.2 series unless you
 # also move torch/CUDA. [VERIFY that 2.2.x is compatible with SEN2SR's full model]
 ARG MAMBA_SPEC="mamba-ssm<2.3"
+# Compiling mamba-ssm's CUDA kernels can exhaust RAM with too many parallel jobs.
+ARG MAX_JOBS=4
+# Extra packages the model loader may need (e.g. "causal-conv1d"; unknown until the weights are
+# downloaded, see `selftest`). Installed under the same torch constraints.
+ARG EXTRA_PIP_PACKAGES=""
 ARG TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
 ENV DEBIAN_FRONTEND=noninteractive PIP_CACHE_DIR=/root/.cache/pip PIP_DEFAULT_TIMEOUT=300 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} MAX_JOBS=${MAX_JOBS}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3.11 python3.11-venv python3.11-dev build-essential ninja-build git \
     && rm -rf /var/lib/apt/lists/*
@@ -28,13 +33,14 @@ RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
     pip-retry --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} && pip-retry wheel packaging setuptools \
-    && pip freeze | grep -iE '^(torch|torchvision)==' > /opt/torch-constraints.txt \
+    && pip freeze | grep -iE '^(torch|torchvision|triton)==' > /opt/torch-constraints.txt \
     && cat /opt/torch-constraints.txt
 # mamba-ssm must be built against the installed torch
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
-    pip-retry -c /opt/torch-constraints.txt --no-build-isolation ${MAMBA_SPEC}
+    pip-retry -c /opt/torch-constraints.txt --no-build-isolation ${MAMBA_SPEC} \
+    && if [ -n "${EXTRA_PIP_PACKAGES}" ]; then pip-retry -c /opt/torch-constraints.txt --no-build-isolation ${EXTRA_PIP_PACKAGES}; fi
 WORKDIR /src
 COPY enhance/requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
@@ -53,6 +59,7 @@ RUN python -c "import os,sys,torch; v=torch.version.cuda or ''; want=os.environ[
 
 FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 HOME=/tmp HF_HOME=/data/cache/hf \
+    SATENHANCE_IMAGE_FLAVOR=gpu \
     PATH=/opt/venv/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends python3.11 libexpat1 \
     && rm -rf /var/lib/apt/lists/*

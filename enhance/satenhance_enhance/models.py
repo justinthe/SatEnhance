@@ -40,21 +40,36 @@ def stub_enabled() -> bool:
     return os.environ.get(STUB_ENV) == "1"
 
 
+def _no_gpu_message(what: str) -> str:
+    """Say *why* there is no GPU, using which image we are in."""
+    flavor = os.environ.get("SATENHANCE_IMAGE_FLAVOR", "")
+    if flavor == "gpu":
+        return (
+            f"{what}, but no GPU is visible inside this GPU image. Check that the NVIDIA "
+            "Container Toolkit is installed and Docker was restarted, and run ./scripts/doctor.sh "
+            "(it tests the GPU inside the image)."
+        )
+    if flavor == "cpu":
+        return (
+            f"{what}, but this is the CPU image (CPU-only PyTorch). Build and use the GPU image: "
+            "./scripts/build.sh --gpu-only, then ./scripts/run_system2.sh --gpu ..."
+        )
+    return f"{what}, but no CUDA GPU is available"
+
+
 def resolve_device(requested: str, family: str) -> str:
     """auto -> cuda if available. Never silently downgrade a requested model (PRD 9.4)."""
     import torch
 
     has_cuda = torch.cuda.is_available()
     if requested == "cuda" and not has_cuda:
-        raise SatEnhanceError(
-            ExitCode.MODEL_UNSUPPORTED, "--device cuda requested but no CUDA GPU is available"
-        )
+        raise SatEnhanceError(ExitCode.MODEL_UNSUPPORTED, _no_gpu_message("--device cuda requested"))
     device = requested if requested != "auto" else ("cuda" if has_cuda else "cpu")
     if family == "full" and device != "cuda":
         raise SatEnhanceError(
             ExitCode.MODEL_UNSUPPORTED,
-            "The full SEN2SR (Mamba) model needs an NVIDIA GPU; none is available. "
-            "Use --model lite, or run the GPU image on a GPU host.",
+            _no_gpu_message("The full SEN2SR (Mamba) model needs an NVIDIA GPU")
+            + " Or use --model lite, which runs on CPU.",
         )
     return device
 
