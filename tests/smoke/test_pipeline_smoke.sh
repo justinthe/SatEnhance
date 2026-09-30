@@ -77,6 +77,11 @@ expect_rc 10 "pipeline propagates exit 10 (no data)" ./scripts/run_pipeline.sh -
 [[ -z "$(ls -A output)" ]] && { echo "PASS  System 2 not run after System 1 failure"; pass=$((pass+1)); } \
   || { echo "FAIL  output/ not empty after failed System 1"; fail=$((fail+1)); }
 
+echo "--- System 2 helper commands inside the enhance image"
+rm -rf rawdata/* output/*
+expect_rc 0  "synthetic rawdata generator runs in the enhance image" compose_py enhance-cpu -m satenhance_enhance.synthetic --out /data/rawdata
+expect_rc 0  "System 2 runs on the synthetic rawdata" ./scripts/run_system2.sh --cpu
+
 echo
 echo "smoke: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

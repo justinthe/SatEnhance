@@ -29,7 +29,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      # torch and torchvision from the same index (timm needs torchvision) so pip never swaps torch
+      - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      # deliberately NOT installing acquire: System 2 must work with its own dependencies only
       - run: pip install -e common -e enhance pytest
       - run: pytest enhance/tests -q
 

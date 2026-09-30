@@ -52,21 +52,23 @@ def make_rawdata(
         is_scl = b == "SCL"
         infos[b] = mf.BandInfo(file=f"S2_SYNTH/{b}.tif", res_m=res,
                                scale=1.0 if is_scl else 0.0001, offset=0.0 if is_scl else offset)
-    # AOI polygon covering the raster, in WGS84
-    from pyproj import Transformer
-    from shapely.geometry import box, mapping
-    from shapely.ops import transform
+    # AOI polygon covering the raster, in WGS84 (rasterio only: System 2 has no pyproj/geopandas)
+    from rasterio.warp import transform_geom
 
     span = size * 10
-    poly = transform(Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform,
-                     box(origin[0], origin[1] - span, origin[0] + span, origin[1]))
+    x0, y0, x1, y1 = origin[0], origin[1] - span, origin[0] + span, origin[1]
+    poly_utm = {"type": "Polygon", "coordinates": [[(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]]}
+    poly = transform_geom(crs, "EPSG:4326", poly_utm)
+    ring = poly["coordinates"][0]
+    lons, lats = [c[0] for c in ring], [c[1] for c in ring]
+    bounds = [min(lons), min(lats), max(lons), max(lats)]
     (run_dir / "aoi.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [
-        {"type": "Feature", "properties": {}, "geometry": mapping(poly)}]}))
+        {"type": "Feature", "properties": {}, "geometry": poly}]}))
     man = mf.Manifest(
         run_id=run_id, created_utc="2026-01-01T00:00:00Z",
         query=mf.Query(aoi_source="synthetic", start="2026-01-01", end="2026-01-31",
                        max_cloud=20, sensor=sensor),
-        aoi=mf.Aoi(bbox=list(poly.bounds), area_km2=(span / 1000) ** 2),
+        aoi=mf.Aoi(bbox=bounds, area_km2=(span / 1000) ** 2),
         scene=mf.Scene(id="SYNTH", datetime="2026-01-05T00:00:00Z", aoi_cloud_fraction=0.0,
                        aoi_coverage=100.0, processing_baseline="05.11", bands=infos),
     )
