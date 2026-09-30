@@ -58,7 +58,7 @@ $EDITOR .env
 Then build the images and (optionally) fetch the model weights:
 
 ```bash
-./scripts/build.sh                 # acquire + enhance-cpu (+ enhance-gpu if a GPU runtime is detected)
+./scripts/build.sh                 # acquire + enhance-cpu (the GPU image is opt-in: --gpu)
 ./scripts/run_system2.sh prefetch  # downloads SEN2SR weights into ./cache/models (needs internet)
 ```
 
@@ -67,8 +67,8 @@ Build options:
 | Command | Builds |
 |---|---|
 | `./scripts/build.sh` | `acquire`, `enhance-cpu`, plus `enhance-gpu` if `nvidia-smi` and the Docker NVIDIA runtime are found |
-| `./scripts/build.sh --cpu-only` | `acquire`, `enhance-cpu` |
-| `./scripts/build.sh --gpu` | also `enhance-gpu` (slow: compiles `mamba-ssm`; **untested**, see Troubleshooting) |
+| `./scripts/build.sh --gpu` | also `enhance-gpu` (several GB of downloads; compiles `mamba-ssm`; **untested on a real GPU**, see Troubleshooting) |
+| `./scripts/build.sh --gpu-only` | only `enhance-gpu` |
 
 Build-time environment variables (rarely needed):
 
@@ -123,7 +123,7 @@ Notes:
 ./scripts/run_system2.sh --cpu                    # force the CPU image
 ```
 
-`--cpu` / `--gpu` choose the image; with neither, the GPU image is used when a GPU runtime is detected, otherwise CPU. Everything else goes to the enhancer (section 6).
+`--cpu` / `--gpu` choose the image; with neither, the GPU image is used only when a GPU runtime is detected **and** the GPU image has been built; otherwise CPU. Everything else goes to the enhancer (section 6).
 
 ### 4.3 Both in one go — `run_pipeline.sh`
 
@@ -271,7 +271,7 @@ Use these in your own scripts (`echo $?`).
 | Exit 21 with `--model full` | No usable NVIDIA GPU in the container. Build/run the GPU image (`--gpu`) on a GPU host with the NVIDIA Container Toolkit |
 | Exit 22 / container killed | Lower `--block` (e.g. 256) or use a smaller AOI |
 | Colours look washed out or too dark | Try `--reflectance raw-div10000` |
-| GPU image fails to build | `mamba-ssm` builds are fragile and this Dockerfile is untested. Pin a torch/CUDA/mamba-ssm combination that works for your GPU with the build args in `enhance/Dockerfile.gpu` |
+| GPU image fails to build | `mamba-ssm` builds are fragile and this Dockerfile is untested on a real GPU. It pins `mamba-ssm<2.3` (newer versions make pip swap in a different CUDA build of PyTorch) and fails the build with a "CUDA mismatch" message if torch ends up on the wrong CUDA. Override `MAMBA_SPEC`, `TORCH_INDEX_URL`, `CUDA_VERSION` build args in `enhance/Dockerfile.gpu` if your GPU needs a different combination. If the failure is just a download timeout, re-run `./scripts/build.sh --gpu-only`; the pip cache lets it resume |
 | Files owned by root in `rawdata/`/`output/` | Run the scripts (not raw `docker run`); they pass your user id |
 | `image 'satenhance-…' not found` | The images aren't built yet. Run `./scripts/build.sh` first |
 | Build fails with `ReadTimeoutError` from `files.pythonhosted.org` (or another network error while `pip` downloads) | Slow or flaky connection. Just **re-run `./scripts/build.sh`**: `pip` now retries each download and keeps a cache between builds, so a re-run resumes instead of starting over. The System 2 image is the biggest download (PyTorch, several GB) |

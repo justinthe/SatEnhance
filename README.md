@@ -15,7 +15,7 @@ Prerequisites: Docker with the Compose plugin. For the GPU image, an NVIDIA GPU 
 
 ```bash
 cp .env.example .env            # then fill in CDSE_S3_ACCESS_KEY / CDSE_S3_SECRET_KEY
-./scripts/build.sh              # builds acquire + enhance-cpu (+ enhance-gpu if a GPU runtime is found)
+./scripts/build.sh              # builds acquire + enhance-cpu   (add --gpu for the GPU image)
 ./scripts/run_system2.sh prefetch   # optional: download model weights into ./cache
 
 # Everything in one go:
@@ -31,9 +31,9 @@ Results: `rawdata/<run_id>/` (inputs + `manifest.json`) and `output/<run_id>/` (
 | Script | What it does |
 |---|---|
 | `scripts/run_system1.sh <args>` | System 1 only → `rawdata/` |
-| `scripts/run_system2.sh [--cpu\|--gpu] [--run-id ID] <args>` | System 2 only, on the latest (or a chosen) run. Picks the GPU image if a GPU runtime is present |
+| `scripts/run_system2.sh [--cpu\|--gpu] [--run-id ID] <args>` | System 2 only, on the latest (or a chosen) run. Uses the GPU image only if a GPU runtime is present and the GPU image has been built; otherwise CPU. Force one with --cpu/--gpuent |
 | `scripts/run_pipeline.sh [--cpu\|--gpu] <system 1 args> [-- <system 2 args>]` | System 1 then System 2. Stops at the first failure and returns its exit code |
-| `scripts/build.sh [--cpu-only\|--gpu]` | Build the images |
+| `scripts/build.sh [--gpu\|--gpu-only]` | Build the images (default: acquire + CPU; the GPU image is opt-in) |
 
 Without a terminal (cron, CI) `--non-interactive` is added automatically.
 

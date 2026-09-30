@@ -18,7 +18,12 @@ for a in "$@"; do
   esac
 done
 if [[ "$target" == auto ]]; then
-  if has_gpu; then target=gpu; else target=cpu; fi
+  # GPU only if a GPU runtime is present AND the GPU image has been built.
+  if has_gpu && docker image inspect satenhance-enhance:gpu >/dev/null 2>&1; then
+    target=gpu
+  else
+    target=cpu
+  fi
 fi
 service="enhance-$target"
 require_image "satenhance-enhance:$target"
