@@ -10,7 +10,7 @@ from pathlib import Path
 import typer
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from satenhance_common.logging import setup_logging
-from satenhance_common.report import write_error_report
+from satenhance_common.report import host_path, write_error_report
 
 from .dates import DEFAULT_DAYS, parse_date, resolve_window
 from .pipeline import AcquireParams, acquire, resolve_aoi
@@ -34,7 +34,7 @@ def _fail(e: BaseException, out: Path, stage: str | None = None) -> typer.Exit:
     where = Path(e.context["run_dir"]) if isinstance(e, SatEnhanceError) and "run_dir" in e.context else Path(out)
     path = write_error_report(where, tool="satenhance-acquire", exc=e, stage=stage)
     if path:
-        log.error("Details: %s", path)
+        log.error("Details: %s", host_path(path))
     return typer.Exit(code)
 
 

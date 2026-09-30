@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol
@@ -38,5 +39,6 @@ class Provider(Protocol):
     def href(self, candidate: Candidate, band: str) -> str:
         """A GDAL-openable path for a band."""
 
-    def gdal_env(self) -> dict[str, str]:
-        """GDAL config options needed to read hrefs (S3 endpoint, keys, ...)."""
+    def rasterio_env(self) -> AbstractContextManager:
+        """A `rasterio.Env` configured to read this provider's hrefs (credentials included).
+        Use as `with provider.rasterio_env(): rasterio.open(provider.href(...))`."""

@@ -147,24 +147,62 @@ class Grid:
         return (self.height, self.width)
 
 
+_AUTH_MARKERS = (
+    "403", "401", "accessdenied", "invalidaccesskeyid", "forbidden", "signaturedoesnotmatch",
+    "signature we calculated", "authorizationheadermalformed", "expiredtoken", "invalidtoken",
+)
+_NOTFOUND_MARKERS = (
+    "does not exist in the file system", "specified key does not exist",
+    "specified bucket does not exist", "404", "nosuchkey", "nosuchbucket",
+)
+_UNREACHABLE_MARKERS = (
+    "could not resolve host", "couldn't resolve", "connection refused", "failed to connect",
+    "couldn't connect", "timed out", "timeout", "ssl connect", "network is unreachable",
+)
+
+
+def classify_io_error(e: BaseException, what: str, href: str | None = None) -> SatEnhanceError:
+    """Turn a rasterio/GDAL failure on the S3 path into an actionable exit code and message.
+    Order matters: a 403 body often also says 'does not exist', so auth is checked first."""
+    text = str(e)
+    low = text.lower()
+    where = f" ({href})" if href else ""
+    if any(m in low for m in _AUTH_MARKERS):
+        return SatEnhanceError(
+            ExitCode.AUTH_FAILURE,
+            f"Copernicus rejected the S3 credentials while reading {what}: {text}. Check "
+            "CDSE_S3_ACCESS_KEY and CDSE_S3_SECRET_KEY in .env (they may have expired, or have "
+            "stray spaces/quotes), and try CDSE_S3_REGION if the message mentions the region. "
+            "Then run: ./scripts/run_system1.sh probe --aoi-file <your file>",
+        )
+    if any(m in low for m in _NOTFOUND_MARKERS):
+        return SatEnhanceError(
+            ExitCode.NETWORK_FAILURE,
+            f"{what}: the catalogue lists this file but it is not in the bucket{where}. "
+            "The asset URLs may differ from what this tool expects; run "
+            "./scripts/run_system1.sh probe to see the real ones.",
+        )
+    if any(m in low for m in _UNREACHABLE_MARKERS):
+        return SatEnhanceError(
+            ExitCode.NETWORK_FAILURE,
+            f"Cannot reach the S3 endpoint while reading {what}: {text}. Check your network "
+            "or proxy, and CDSE_S3_ENDPOINT if you set it.",
+        )
+    return SatEnhanceError(ExitCode.NETWORK_FAILURE, f"Could not read {what}: {text}")
+
+
 def _open(provider: Provider, cand: Candidate, band: str) -> DatasetReader:
+    href = provider.href(cand, band)
     try:
-        return rasterio.open(provider.href(cand, band))
-    except rasterio.errors.RasterioIOError as e:
-        text = str(e)
-        if any(s in text for s in ("403", "401", "AccessDenied", "InvalidAccessKeyId", "Forbidden")):
-            raise SatEnhanceError(
-                ExitCode.AUTH_FAILURE, f"Access denied reading {cand.id} {band}: {e}"
-            ) from e
-        raise SatEnhanceError(
-            ExitCode.NETWORK_FAILURE, f"Could not open {cand.id} {band}: {e}"
-        ) from e
+        return rasterio.open(href)
+    except rasterio.errors.RasterioError as e:  # includes RasterioIOError and EnvError
+        raise classify_io_error(e, f"{cand.id} {band}", href) from e
 
 
 def plan_grid(provider: Provider, aoi: BaseGeometry, tiles: list[Candidate]) -> Grid:
     """10 m grid covering the AOI bbox, on the lattice of the most common tile CRS."""
     heads = []
-    with rasterio.Env(**provider.gdal_env()):
+    with provider.rasterio_env():
         for t in sorted(tiles, key=lambda c: c.id):
             with _open(provider, t, REFERENCE_BAND) as src:
                 heads.append((src.crs, src.transform))
@@ -258,10 +296,13 @@ def plan_mosaic(provider: Provider, aoi: BaseGeometry, acq: Acquisition) -> Mosa
     n_inside = int(inside.sum())
 
     scls, meta = [], []
-    with rasterio.Env(**provider.gdal_env()):
+    with provider.rasterio_env():
         for t in acq.tiles:
             with _open(provider, t, "SCL") as src:
-                arr, resampled = read_into_grid(src, grid20, Resampling.nearest)
+                try:
+                    arr, resampled = read_into_grid(src, grid20, Resampling.nearest)
+                except rasterio.errors.RasterioError as e:
+                    raise classify_io_error(e, f"{t.id} SCL", provider.href(t, "SCL")) from e
                 meta.append((str(src.crs), resampled))
             scls.append(arr)
 

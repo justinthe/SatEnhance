@@ -58,12 +58,27 @@ def test_item_to_candidate_maps_assets():
         p.href(c, "B02")
 
 
-def test_gdal_env_and_auth():
+@pytest.mark.parametrize("href,expected", [
+    ("s3://eodata/Sentinel-2/MSI/L2A/x/B04_10m.jp2", "/vsis3/eodata/Sentinel-2/MSI/L2A/x/B04_10m.jp2"),
+    ("https://eodata.dataspace.copernicus.eu/Sentinel-2/MSI/L2A/x/B04_10m.jp2",
+     "/vsis3/eodata/Sentinel-2/MSI/L2A/x/B04_10m.jp2"),
+    ("/local/file.tif", "/local/file.tif"),
+])
+def test_href_is_routed_through_s3_with_credentials(href, expected):
+    p = CdseProvider(client=FakeClient(), env=ENV)
+    c = item_to_candidate(make_item())
+    c.assets["B04"] = href
+    assert p.href(c, "B04") == expected
+
+
+def test_gdal_options_and_auth():
     p = CdseProvider(client=FakeClient(), env=ENV)
     p.check_auth()
-    env = p.gdal_env()
-    assert env["AWS_S3_ENDPOINT"] == "eodata.dataspace.copernicus.eu"
-    assert env["AWS_VIRTUAL_HOSTING"] == "FALSE" and env["AWS_ACCESS_KEY_ID"] == "ak"
+    opts = p.gdal_options()
+    assert opts["AWS_VIRTUAL_HOSTING"] == "FALSE" and opts["AWS_HTTPS"] == "YES"
+    # rasterio refuses these as config options (the EnvError seen on the first real run)
+    assert "AWS_ACCESS_KEY_ID" not in opts and "AWS_SECRET_ACCESS_KEY" not in opts
+    assert "AWS_S3_ENDPOINT" not in opts  # the endpoint travels in the AWSSession
     with pytest.raises(SatEnhanceError) as e:
         CdseProvider(client=FakeClient(), env={}).check_auth()
     assert e.value.code == ExitCode.AUTH_FAILURE
@@ -204,8 +219,8 @@ def test_search_falls_back_step_by_step():
     assert ["query" in c for c in client.calls] == [True, True, False]
 
 
-def test_gdal_env_disables_directory_listing_and_sets_timeouts():
-    env = CdseProvider(client=FakeClient(), env=ENV).gdal_env()
+def test_gdal_options_disable_directory_listing_and_set_timeouts():
+    env = CdseProvider(client=FakeClient(), env=ENV).gdal_options()
     assert env["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
     assert int(env["GDAL_HTTP_TIMEOUT"]) >= 60 and int(env["GDAL_HTTP_CONNECTTIMEOUT"]) > 0
 

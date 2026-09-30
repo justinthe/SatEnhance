@@ -9,3 +9,4 @@ typer>=0.12
 tenacity>=8.2
 numpy>=1.26
 pydantic>=2.5
+boto3>=1.34

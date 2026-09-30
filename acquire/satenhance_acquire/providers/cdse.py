@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import date
 from typing import Any
 
+import rasterio
 from pystac_client import Client
 from pystac_client.exceptions import APIError
+from rasterio.session import AWSSession
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry import mapping
 from shapely.geometry.base import BaseGeometry
@@ -25,6 +28,7 @@ log = logging.getLogger(__name__)
 STAC_URL = "https://stac.dataspace.copernicus.eu/v1"
 COLLECTION = "sentinel-2-l2a"
 S3_ENDPOINT = "eodata.dataspace.copernicus.eu"
+S3_REGION = "default"  # [VERIFY with `probe`] GDAL signs requests with this region
 MAX_ITEMS = 500  # cap on scenes considered per search
 PAGE_SIZE = 100
 
@@ -101,14 +105,20 @@ class CdseProvider:
                 "(see .env.example).",
             )
 
-    def gdal_env(self) -> dict[str, str]:
-        ak, sk = self._keys()
+    def _endpoint(self) -> tuple[str, bool]:
+        """(host[:port], use_https). CDSE_S3_ENDPOINT may carry a scheme (tests use http://)."""
+        raw = self._env.get("CDSE_S3_ENDPOINT") or S3_ENDPOINT
+        https = not raw.startswith("http://")
+        return re.sub(r"^https?://", "", raw).rstrip("/"), https
+
+    def gdal_options(self) -> dict[str, str]:
+        """Non-secret GDAL options for reading the bucket. Credentials are NOT here: rasterio
+        refuses AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY as config options and wants them in an
+        AWSSession (see rasterio_env)."""
+        _, https = self._endpoint()
         return {
-            "AWS_S3_ENDPOINT": S3_ENDPOINT,
-            "AWS_ACCESS_KEY_ID": ak,
-            "AWS_SECRET_ACCESS_KEY": sk,
             "AWS_VIRTUAL_HOSTING": "FALSE",
-            "AWS_HTTPS": "YES",
+            "AWS_HTTPS": "YES" if https else "NO",
             "GDAL_HTTP_MAX_RETRY": "4",
             "GDAL_HTTP_RETRY_DELAY": "2",
             "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".jp2,.tif,.xml",
@@ -118,6 +128,21 @@ class CdseProvider:
             "GDAL_HTTP_TIMEOUT": "120",
             "VSI_CACHE": "TRUE",
         }
+
+    def rasterio_env(self) -> rasterio.Env:
+        ak, sk = self._keys()
+        endpoint, _ = self._endpoint()
+        region = self._env.get("CDSE_S3_REGION") or S3_REGION
+        try:
+            session = AWSSession(
+                aws_access_key_id=ak, aws_secret_access_key=sk,
+                endpoint_url=endpoint, region_name=region,
+            )
+        except Exception as e:  # noqa: BLE001  (boto3 missing/misconfigured)
+            raise SatEnhanceError(
+                ExitCode.UNEXPECTED, f"Could not set up S3 access (is boto3 installed?): {e}"
+            ) from e
+        return rasterio.Env(session=session, **self.gdal_options())
 
     def href(self, candidate: Candidate, band: str) -> str:
         try:
@@ -130,6 +155,11 @@ class CdseProvider:
             ) from e
         if href.startswith("s3://"):
             return "/vsis3/" + href[len("s3://"):]
+        # The catalogue may give the same object as an https link on the eodata host. Read it
+        # through S3 (with credentials) rather than as an anonymous web request that 403s.
+        m = re.match(r"^https?://eodata\.dataspace\.copernicus\.eu/(.*)$", href)
+        if m:
+            return "/vsis3/eodata/" + m.group(1)
         return href
 
     # -- search -----------------------------------------------------------

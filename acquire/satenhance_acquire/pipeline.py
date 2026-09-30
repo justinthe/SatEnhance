@@ -85,8 +85,9 @@ def acquire(
     aoi_res, label = resolve_aoi(p, input_fn)
     est = sizing.check_size(aoi_res.geometry, p.sensor, p.max_area_km2)
     log.info(
-        "AOI %s: bbox %.1f km2 (polygon %.1f km2); est. raw %.0f MB, enhanced %.0f MB",
-        label, est.bbox_km2, est.polygon_km2, est.rawdata_mb, est.output_mb,
+        "AOI %s: bbox %.1f km2 (polygon %.1f km2); est. raw %s, enhanced %s",
+        label, est.bbox_km2, est.polygon_km2, sizing.format_size(est.rawdata_mb),
+        sizing.format_size(est.output_mb),
     )
     run_id = make_run_id(label)
     run_dir = Path(p.out_dir) / run_id
@@ -96,6 +97,11 @@ def acquire(
     except SatEnhanceError as e:
         e.context.setdefault("run_dir", str(run_dir))
         raise
+    except Exception as e:
+        # Anything unexpected still gets its report next to the run, with the traceback.
+        err = SatEnhanceError(ExitCode.UNEXPECTED, f"Unexpected error: {type(e).__name__}: {e}")
+        err.context["run_dir"] = str(run_dir)
+        raise err from e
 
 
 def _acquire_into(

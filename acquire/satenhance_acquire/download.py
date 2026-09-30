@@ -20,7 +20,15 @@ from satenhance_common import manifest as mf
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry.base import BaseGeometry
 
-from .mosaic import BAND_RES, Acquisition, MosaicPlan, _open, plan_mosaic, read_into_grid
+from .mosaic import (
+    BAND_RES,
+    Acquisition,
+    MosaicPlan,
+    _open,
+    classify_io_error,
+    plan_mosaic,
+    read_into_grid,
+)
 from .select import Assessment
 from .sizing import geodesic_area_km2
 
@@ -99,7 +107,7 @@ def download_scene(
         choice = plan.choice_at(res)
         out = None
         try:
-            with rasterio.Env(**provider.gdal_env()):
+            with provider.rasterio_env():
                 for i, tile in enumerate(plan.tiles):
                     m = choice == i
                     if not m.any():
@@ -119,10 +127,8 @@ def download_scene(
                         shifted = np.clip(arr.astype("int64") + delta, 1, info.max)
                         arr = np.where(arr > 0, shifted, 0).astype(out.dtype)
                     out[m] = arr[m]
-        except rasterio.errors.RasterioIOError as e:
-            raise SatEnhanceError(
-                ExitCode.NETWORK_FAILURE, f"Download failed for {acq.id} {band}: {e}"
-            ) from e
+        except rasterio.errors.RasterioError as e:
+            raise classify_io_error(e, f"{acq.id} {band}") from e
         if out is None:
             raise SatEnhanceError(ExitCode.NO_DATA, f"No tile supplies pixels for {band}")
         _write_tif(dest, out, grid, str(out.dtype))

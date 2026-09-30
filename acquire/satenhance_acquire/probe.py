@@ -15,7 +15,7 @@ from rasterio.windows import Window
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry.base import BaseGeometry
 
-from .mosaic import _open, group_candidates
+from .mosaic import _open, classify_io_error, group_candidates
 from .providers.base import Provider
 
 REQUIRED = ["B02", "B03", "B04", "B08", "SCL"]
@@ -63,7 +63,7 @@ def probe(provider: Provider, aoi: BaseGeometry, start: date, end: date,
         )
 
     out("reading real pixels:")
-    with rasterio.Env(**provider.gdal_env()):
+    with provider.rasterio_env():
         for band in ("SCL", "B04"):
             with _open(provider, first, band) as src:
                 out(f"  {band}: crs={src.crs} size={src.width}x{src.height} "
@@ -71,10 +71,9 @@ def probe(provider: Provider, aoi: BaseGeometry, start: date, end: date,
                 w = Window(src.width // 2, src.height // 2, min(64, src.width), min(64, src.height))
                 try:
                     data = src.read(1, window=w)
-                except rasterio.errors.RasterioIOError as e:
-                    raise SatEnhanceError(
-                        ExitCode.NETWORK_FAILURE, f"Opened {band} but could not read pixels: {e}"
-                    ) from e
+                except rasterio.errors.RasterioError as e:
+                    raise classify_io_error(e, f"{first.id} {band} (opened, but reading pixels)",
+                                            provider.href(first, band)) from e
                 out(f"  {band}: read a {data.shape[1]}x{data.shape[0]} window, "
                     f"non-zero pixels: {int((data > 0).sum())}")
     out("PROBE OK")

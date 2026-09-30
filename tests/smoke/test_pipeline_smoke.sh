@@ -98,6 +98,14 @@ expect_rc 0  "selftest loads each variant and runs a patch" ./scripts/run_system
 expect_rc 0  "failed runs leave an error_report.json" bash -c \
   'rm -f rawdata/error_report.json; ! ./scripts/run_system1.sh --aoi-file cache/smoke/site.geojson --sensor lidar >/dev/null 2>&1; ls rawdata/error_report.json'
 
+echo "--- real CDSE provider inside the acquire image (the EnvError seen on the first real run)"
+expect_rc 0  "S3 session can be created (boto3 present, no EnvError)" compose_py acquire -c "
+from satenhance_acquire.providers.cdse import CdseProvider
+p = CdseProvider(env={'CDSE_S3_ACCESS_KEY': 'a', 'CDSE_S3_SECRET_KEY': 'b'})
+with p.rasterio_env():
+    import rasterio; print('ok', rasterio.__version__)
+"
+
 echo "--- System 2 helper commands inside the enhance image"
 rm -rf rawdata/* output/*
 expect_rc 0  "synthetic rawdata generator runs in the enhance image" compose_py enhance-cpu -m satenhance_enhance.synthetic --out /data/rawdata

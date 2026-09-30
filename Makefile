@@ -6,7 +6,7 @@ PY   ?= $(VENV)/bin/python
 venv:
 	python3 -m venv $(VENV)
 	$(VENV)/bin/pip install -U pip
-	$(VENV)/bin/pip install -e common -e acquire -e enhance pytest pytest-cov responses ruff
+	$(VENV)/bin/pip install -e common -e acquire -e enhance pytest pytest-cov responses "moto[server]" ruff
 
 lint:
 	$(VENV)/bin/ruff check .

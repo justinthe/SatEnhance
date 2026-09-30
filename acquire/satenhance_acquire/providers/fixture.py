@@ -94,8 +94,8 @@ class FixtureProvider:
     def check_auth(self) -> None:
         return None
 
-    def gdal_env(self) -> dict[str, str]:
-        return {}
+    def rasterio_env(self) -> rasterio.Env:
+        return rasterio.Env()
 
     def href(self, candidate: Candidate, band: str) -> str:
         return candidate.assets[band]

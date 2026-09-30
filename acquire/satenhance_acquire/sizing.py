@@ -45,6 +45,15 @@ def estimate(geom: BaseGeometry, sensor: str) -> SizeEstimate:
     return SizeEstimate(poly, bb, pixels, raw, out)
 
 
+def format_size(mb: float) -> str:
+    """'0 MB' for a 0.4 km2 AOI looks like a bug; show KB below 1 MB and GB above 1000 MB."""
+    if mb < 1:
+        return f"{mb * 1024:.0f} KB"
+    if mb >= 1000:
+        return f"{mb / 1000:.1f} GB"
+    return f"{mb:.0f} MB"
+
+
 def check_size(geom: BaseGeometry, sensor: str, max_area_km2: float) -> SizeEstimate:
     """Reject AOIs whose bounding box exceeds the cap.
 
@@ -56,8 +65,8 @@ def check_size(geom: BaseGeometry, sensor: str, max_area_km2: float) -> SizeEsti
         raise SatEnhanceError(
             ExitCode.AOI_TOO_LARGE,
             f"AOI bounding box is {est.bbox_km2:.1f} km2 (polygon {est.polygon_km2:.1f} km2), "
-            f"above the {max_area_km2:g} km2 cap. Estimated raw data {est.rawdata_mb:.0f} MB, "
-            f"enhanced output {est.output_mb:.0f} MB. Use a smaller AOI or raise "
+            f"above the {max_area_km2:g} km2 cap. Estimated raw data {format_size(est.rawdata_mb)}, "
+            f"enhanced output {format_size(est.output_mb)}. Use a smaller AOI or raise "
             f"--max-area-km2 / SATENHANCE_MAX_AREA_KM2.",
         )
     return est

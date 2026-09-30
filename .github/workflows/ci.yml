@@ -20,7 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -e common -e acquire pytest responses
+      # moto: a local S3 server so the real /vsis3/ read path is tested (tests/test_s3_access.py)
+      - run: pip install -e common -e acquire pytest responses "moto[server]"
       - run: pytest common acquire/tests tests/shell -q
 
   test-enhance:

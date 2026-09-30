@@ -10,7 +10,7 @@ from pathlib import Path
 import typer
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from satenhance_common.logging import setup_logging
-from satenhance_common.report import write_error_report
+from satenhance_common.report import host_path, write_error_report
 
 app = typer.Typer(add_completion=False, help="SatEnhance System 2: super-resolve Sentinel-2 rawdata.")
 log = logging.getLogger("satenhance")
@@ -30,7 +30,7 @@ def _fail(e: BaseException, report_dir: Path | None = None) -> typer.Exit:
     if report_dir is not None:
         path = write_error_report(report_dir, tool="satenhance-enhance", exc=e)
         if path:
-            log.error("Details: %s", path)
+            log.error("Details: %s", host_path(path))
     return typer.Exit(code)
 
 

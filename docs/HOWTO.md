@@ -52,6 +52,8 @@ $EDITOR .env
 |---|---|---|
 | `CDSE_S3_ACCESS_KEY` | Copernicus S3 access key | `AKIA…`-style string from step 2 |
 | `CDSE_S3_SECRET_KEY` | Copernicus S3 secret key | (keep private) |
+| `CDSE_S3_REGION` (optional) | Region GDAL signs S3 requests with. Default `default`; change only if `probe` reports a region problem | `default` |
+| `CDSE_S3_ENDPOINT` (optional) | S3 hostname. Default `eodata.dataspace.copernicus.eu` | |
 | `NOMINATIM_USER_AGENT` | Identifies your app to Nominatim. Include a contact | `SatEnhance/0.1 (you@example.com)` |
 | `SATENHANCE_MAX_AREA_KM2` | Default cap on AOI bounding-box area | `100` |
 
@@ -301,6 +303,10 @@ Use these in your own scripts (`echo $?`).
 | Log says "Lowered --block from 512 to …" | Your container has little free memory; the run continues with smaller blocks. Give Docker more memory for speed |
 | Exit 22: "returned N bands but M were expected" | Wrong model weights are cached. Delete `cache/models/` and run `prefetch` again |
 | `--aoi-file` says "not found" though the file exists | Relative paths are relative to the directory you run the script from; check `pwd`, or pass an absolute path |
+| Exit 4 "Copernicus rejected the S3 credentials" | The keys in `.env` are wrong, expired, or have stray spaces/quotes. Generate new S3 keys (section 2), then run `./scripts/run_system1.sh probe --aoi-file <your file>`. If the message mentions the region, try `CDSE_S3_REGION` in `.env` |
+| Exit 5 "the catalogue lists this file but it is not in the bucket" | The asset URLs differ from what this tool expects. Run `probe`: it prints the real asset names and URLs; send me that output |
+| Exit 5 "Cannot reach the S3 endpoint" | Network or proxy problem, or a wrong `CDSE_S3_ENDPOINT` (leave it unset for the default `eodata.dataspace.copernicus.eu`) |
+| `EnvError: GDAL's AWS config options can not be directly set` | Fixed in this version (credentials now go through rasterio's S3 session). `git pull`, `./scripts/build.sh` |
 | First System 2 run is slow to start | It's downloading model weights. Use `prefetch` once |
 
 ---
