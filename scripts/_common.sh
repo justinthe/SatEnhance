@@ -37,3 +37,9 @@ has_arg() {
 compose() { docker compose "$@"; }
 
 die() { echo "error: $*" >&2; exit 2; }
+
+# Fail with a clear message instead of silently starting a long implicit build.
+require_image() {
+  docker image inspect "$1" >/dev/null 2>&1 \
+    || { echo "error: image '$1' not found. Build it first:  ./scripts/build.sh" >&2; exit 1; }
+}

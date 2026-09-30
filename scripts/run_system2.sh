@@ -21,6 +21,7 @@ if [[ "$target" == auto ]]; then
   if has_gpu; then target=gpu; else target=cpu; fi
 fi
 service="enhance-$target"
+require_image "satenhance-enhance:$target"
 echo "Using service: $service" >&2
 
 # shellcheck disable=SC2046

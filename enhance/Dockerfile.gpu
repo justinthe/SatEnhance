@@ -12,7 +12,7 @@ ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
 ARG TORCH_SPEC=torch
 ARG MAMBA_SPEC=mamba-ssm
 ARG TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
-ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+ENV DEBIAN_FRONTEND=noninteractive PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3.11 python3.11-venv python3.11-dev build-essential ninja-build git \
@@ -20,20 +20,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3.11 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
     pip install --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} && pip install wheel packaging setuptools
 # mamba-ssm must be built against the installed torch
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
     pip install --no-build-isolation ${MAMBA_SPEC}
 WORKDIR /src
 COPY enhance/requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
     pip install -r /tmp/requirements.lock
 COPY common ./common
 COPY enhance ./enhance
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
+    --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
     pip install --no-deps ./common ./enhance
 

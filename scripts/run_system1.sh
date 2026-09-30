@@ -8,6 +8,7 @@
 # (they are mounted as /data/... via ./rawdata, ./cache or ./aoi).
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
+require_image satenhance-acquire:latest
 args=("$@")
 mkdir -p aoi
 if ! has_tty && ! has_arg --non-interactive "${args[@]}"; then

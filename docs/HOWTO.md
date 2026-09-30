@@ -273,6 +273,9 @@ Use these in your own scripts (`echo $?`).
 | Colours look washed out or too dark | Try `--reflectance raw-div10000` |
 | GPU image fails to build | `mamba-ssm` builds are fragile and this Dockerfile is untested. Pin a torch/CUDA/mamba-ssm combination that works for your GPU with the build args in `enhance/Dockerfile.gpu` |
 | Files owned by root in `rawdata/`/`output/` | Run the scripts (not raw `docker run`); they pass your user id |
+| `image 'satenhance-…' not found` | The images aren't built yet. Run `./scripts/build.sh` first |
+| Build fails with `ReadTimeoutError` from `files.pythonhosted.org` (or another network error while `pip` downloads) | Slow or flaky connection. Just **re-run `./scripts/build.sh`**: `pip` now retries each download and keeps a cache between builds, so a re-run resumes instead of starting over. The System 2 image is the biggest download (PyTorch, several GB) |
+| `pull access denied for satenhance-acquire` during a build | Harmless. Compose tries to pull our locally built image first, then builds it |
 | First System 2 run is slow to start | It's downloading model weights. Use `prefetch` once |
 
 ---
