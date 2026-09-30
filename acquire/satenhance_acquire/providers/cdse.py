@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 STAC_URL = "https://stac.dataspace.copernicus.eu/v1"
 COLLECTION = "sentinel-2-l2a"
 S3_ENDPOINT = "eodata.dataspace.copernicus.eu"
+MAX_ITEMS = 500  # cap on scenes considered per search
+PAGE_SIZE = 100
 
 # Native resolution of each band; used to build candidate asset keys.
 BAND_RES = {
@@ -105,6 +107,11 @@ class CdseProvider:
             "GDAL_HTTP_MAX_RETRY": "4",
             "GDAL_HTTP_RETRY_DELAY": "2",
             "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".jp2,.tif,.xml",
+            # Do not list the parent "directory" of every file GDAL opens (slow, may be refused).
+            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+            "GDAL_HTTP_CONNECTTIMEOUT": "30",
+            "GDAL_HTTP_TIMEOUT": "120",
+            "VSI_CACHE": "TRUE",
         }
 
     def href(self, candidate: Candidate, band: str) -> str:
@@ -136,26 +143,44 @@ class CdseProvider:
         return list(self._open().search(**kwargs).items())
 
     def search(
-        self, aoi: BaseGeometry, start: date, end: date, max_tile_cloud: float, limit: int = 50
+        self, aoi: BaseGeometry, start: date, end: date, max_tile_cloud: float,
+        limit: int = MAX_ITEMS,
     ) -> list[Candidate]:
-        kwargs: dict[str, Any] = dict(
+        base: dict[str, Any] = dict(
             collections=[COLLECTION],
             intersects=mapping(aoi),
             datetime=f"{start.isoformat()}T00:00:00Z/{end.isoformat()}T23:59:59Z",
             max_items=limit,
+            limit=PAGE_SIZE,
         )
+        server_side = [
+            # best case: the server filters and sorts by cloud, so the clearest scenes come first
+            dict(query={"eo:cloud_cover": {"lte": max_tile_cloud}},
+                 sortby=[{"field": "properties.eo:cloud_cover", "direction": "asc"}]),
+            dict(query={"eo:cloud_cover": {"lte": max_tile_cloud}}),
+            {},  # server supports neither: page through everything and filter here
+        ]
+        items = None
         try:
-            try:
-                items = self._run(query={"eo:cloud_cover": {"lte": max_tile_cloud}}, **kwargs)
-            except APIError as e:
-                # Server may not support the query extension: filter client-side instead.
-                log.warning("Server-side cloud filter rejected (%s); filtering client-side", e)
-                items = self._run(**kwargs)
+            for extra in server_side:
+                try:
+                    items = self._run(**base, **extra)
+                    break
+                except APIError as e:
+                    if getattr(e, "status_code", None) is not None and e.status_code >= 500:
+                        raise
+                    log.warning("Catalogue rejected %s (%s); trying a simpler query",
+                                sorted(extra) or "plain search", e)
         except (APIError, OSError) as e:
             raise SatEnhanceError(
                 ExitCode.NETWORK_FAILURE, f"CDSE catalogue search failed: {e}"
             ) from e
+        if items is None:
+            raise SatEnhanceError(ExitCode.NETWORK_FAILURE, "CDSE catalogue rejected every search variant")
+        if limit >= MAX_ITEMS and len(items) >= limit:
+            log.warning(
+                "Catalogue search hit the %d-item cap; the clearest scene may be missing. "
+                "Use a shorter date range.", limit
+            )
         cands = [item_to_candidate(i) for i in items]
-        return [
-            c for c in cands if c.tile_cloud is None or c.tile_cloud <= max_tile_cloud
-        ]
+        return [c for c in cands if c.tile_cloud is None or c.tile_cloud <= max_tile_cloud]

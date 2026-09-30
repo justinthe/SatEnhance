@@ -63,6 +63,10 @@ expect_rc 21 "full model on CPU"           ./scripts/run_system2.sh --cpu --mode
 echo "--- System 1 alone, then System 2 alone"
 rm -rf rawdata/* output/*
 expect_rc 0  "run_system1.sh succeeds"     ./scripts/run_system1.sh "${COMMON[@]}" --start 2026-01-01 --end 2026-01-31 --max-cloud 10
+expect_rc 0  "relative --aoi-file works from another directory" \
+  bash -c 'cd cache/smoke && ../../scripts/run_system1.sh --aoi-file site.geojson --start 2026-01-01 --end 2026-01-31 --max-cloud 10'
+expect_rc 0  "--aoi-file=PATH form is accepted" \
+  ./scripts/run_system1.sh --aoi-file="$AOI" --start 2026-01-01 --end 2026-01-31 --max-cloud 10
 RUN1="$(tr -d '\r\n' < rawdata/LATEST)"
 expect_rc 0  "run_system2.sh succeeds"     ./scripts/run_system2.sh --cpu --run-id "$RUN1"
 expect_rc 0  "output is geometrically sane" compose_py enhance-cpu - "$RUN1" < "$REPO/tests/smoke/check_output.py"

@@ -27,7 +27,7 @@ class Provider(Protocol):
         """Raise SatEnhanceError(AUTH_FAILURE) if credentials are missing/invalid."""
 
     def search(
-        self, aoi: BaseGeometry, start: date, end: date, max_tile_cloud: float, limit: int = 50
+        self, aoi: BaseGeometry, start: date, end: date, max_tile_cloud: float, limit: int = 500
     ) -> list[Candidate]:
         """Candidates intersecting the AOI in [start, end] with tile cloud <= max_tile_cloud."""
 

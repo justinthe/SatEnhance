@@ -41,6 +41,9 @@ def _silence_predict_large_progress() -> None:
 def _is_oom(exc: BaseException) -> bool:
     import torch
 
+    if isinstance(exc, MemoryError):  # CPU allocation failure
+        return True
+
     oom_types = tuple(
         t for t in (getattr(torch, "OutOfMemoryError", None),
                     getattr(torch.cuda, "OutOfMemoryError", None)) if t
@@ -66,6 +69,13 @@ def _predict_square(model: LoadedModel, sub: np.ndarray, overlap: int) -> np.nda
     with torch.inference_mode():
         y = sen2sr.predict_large(X=x, model=model.module, overlap=overlap)
     y = y.numpy()
+    if y.shape[0] != model.out_channels:
+        raise SatEnhanceError(
+            ExitCode.INFERENCE_FAILURE,
+            f"Model variant '{model.variant.name}' returned {y.shape[0]} bands but "
+            f"{model.out_channels} were expected ({', '.join(model.variant.bands)}). "
+            "The wrong model weights may be cached; delete cache/models and run prefetch again.",
+        )
     if y.shape[1] != side * model.scale or y.shape[2] != side * model.scale:
         raise SatEnhanceError(
             ExitCode.INFERENCE_FAILURE,

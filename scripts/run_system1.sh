@@ -4,8 +4,8 @@
 #       --start 2026-01-01 --end 2026-03-31 --max-cloud 10 --sensor rgb
 #   ./scripts/run_system1.sh --aoi-file site.geojson --start ... --end ...
 # All arguments are passed to `satenhance-acquire` (see --help). Without a terminal (cron/CI),
-# --non-interactive is added automatically. AOI files must live inside this repo directory
-# (they are mounted as /data/... via ./rawdata, ./cache or ./aoi).
+# --non-interactive is added automatically. --aoi-file may be anywhere (relative paths are
+# relative to the directory you run this from); it is copied into ./aoi for the container.
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 require_image satenhance-acquire:latest
@@ -15,18 +15,30 @@ if ! has_tty && ! has_arg --non-interactive "${args[@]}"; then
   args+=(--non-interactive)
 fi
 
-# A relative --aoi-file is mapped into the container via the ./aoi mount.
+# Stage an AOI file into ./aoi/<hash>/ (mounted read-only in the container) and return the
+# in-container path. The hash of the absolute path keeps same-named files from different
+# folders apart; sidecar files (.dbf, .shx, .prj, ...) travel with a loose .shp.
+stage_aoi() {
+  local f="$1"
+  [[ "$f" = /* ]] || f="$CALLER_DIR/$f"      # relative paths are relative to where you ran us
+  [[ -f "$f" ]] || die "AOI file not found: $f"
+  local dir base ext
+  dir="$(cd "$(dirname "$f")" && pwd)"; f="$dir/$(basename "$f")"
+  local key; key="$(printf '%s' "$f" | cksum | cut -d' ' -f1)"
+  mkdir -p "aoi/$key"
+  cp -f "$f" "aoi/$key/"
+  base="${f%.*}"
+  for ext in dbf shx prj cpg qix; do
+    if [[ -f "$base.$ext" ]]; then cp -f "$base.$ext" "aoi/$key/"; fi
+  done
+  echo "/data/aoi/$key/$(basename "$f")"
+}
+
 for i in "${!args[@]}"; do
-  if [[ "${args[$i]}" == "--aoi-file" ]]; then
-    f="${args[$((i+1))]}"
-    [[ -f "$f" ]] || die "AOI file not found: $f"
-    mkdir -p aoi
-    cp -f "$f" "aoi/$(basename "$f")"
-    # copy sidecar files for shapefiles
-    base="${f%.*}"
-    for ext in dbf shx prj cpg qix; do [[ -f "$base.$ext" ]] && cp -f "$base.$ext" "aoi/" || true; done
-    args[$((i+1))]="/data/aoi/$(basename "$f")"
-  fi
+  case "${args[$i]}" in
+    --aoi-file)   args[$((i+1))]="$(stage_aoi "${args[$((i+1))]}")" ;;
+    --aoi-file=*) args[$i]="--aoi-file=$(stage_aoi "${args[$i]#--aoi-file=}")" ;;
+  esac
 done
 
 # shellcheck disable=SC2046

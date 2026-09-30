@@ -1,6 +1,8 @@
 # Sourced by the run scripts. Not executable on its own.
 set -euo pipefail
 
+# Remember where the user ran the script from: relative paths in arguments are relative to it.
+CALLER_DIR="$PWD"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 

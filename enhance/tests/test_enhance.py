@@ -1,22 +1,18 @@
 import json
-import os
 
 import numpy as np
 import pytest
 import rasterio
+from satenhance_common.exit_codes import ExitCode, SatEnhanceError
+from satenhance_enhance import inputs, models
+from satenhance_enhance.cli import app
+from satenhance_enhance.cube import build_cube
+from satenhance_enhance.georef import scaled_transform
+from satenhance_enhance.infer import _predict_square
+from satenhance_enhance.runner import EnhanceParams, enhance
+from satenhance_enhance.synthetic import make_rawdata
+from satenhance_enhance.variants import VARIANTS
 from typer.testing import CliRunner
-
-os.environ["SATENHANCE_STUB_MODEL"] = "1"
-
-from satenhance_common.exit_codes import ExitCode, SatEnhanceError  # noqa: E402
-from satenhance_enhance import inputs, models  # noqa: E402
-from satenhance_enhance.cli import app  # noqa: E402
-from satenhance_enhance.cube import build_cube  # noqa: E402
-from satenhance_enhance.georef import scaled_transform  # noqa: E402
-from satenhance_enhance.infer import _predict_square  # noqa: E402
-from satenhance_enhance.runner import EnhanceParams, enhance  # noqa: E402
-from satenhance_enhance.synthetic import make_rawdata  # noqa: E402
-from satenhance_enhance.variants import VARIANTS  # noqa: E402
 
 
 def params(tmp_path, **kw):

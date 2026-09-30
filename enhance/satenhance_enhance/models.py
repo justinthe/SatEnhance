@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 
+from .download import fetch_model, is_complete
 from .variants import VARIANTS, Variant
 
 log = logging.getLogger(__name__)
@@ -28,6 +30,10 @@ class LoadedModel:
     @property
     def scale(self) -> int:
         return self.variant.scale
+
+    @property
+    def out_channels(self) -> int:
+        return len(self.variant.bands)
 
 
 def stub_enabled() -> bool:
@@ -91,23 +97,53 @@ def load_model(variant_name: str, family: str, device_req: str, cache_root: Path
         module = _stub_module(variant.scale).to(device)
         return LoadedModel(module, device, family, variant, "stub:bicubic", stub=True)
 
-    import mlstac
-
     target = cache_dir_for(cache_root, variant, family)
-    try:
-        if not (target / "mlm.json").exists():
-            log.info("Downloading model %s -> %s", url, target)
-            target.mkdir(parents=True, exist_ok=True)
-            mlstac.download(file=url, output_dir=str(target))
-        module = mlstac.load(str(target)).compiled_model(device=device).to(device)
-    except Exception as e:  # network / HF / mlstac errors surface in many types
-        raise SatEnhanceError(
-            ExitCode.NETWORK_FAILURE,
-            f"Could not fetch or load model from {url}: {e}. "
-            "If offline, run 'prefetch' first with network access.",
-        ) from e
+    module = _load_from_cache(url, target, device, variant, family)
     module.eval()
     return LoadedModel(module, device, family, variant, url)
+
+
+def _torch_version() -> str:
+    import torch
+
+    return torch.__version__
+
+
+def _load_compiled(target: Path, device: str):
+    import mlstac
+
+    return mlstac.load(str(target)).compiled_model(device=device).to(device)
+
+
+def _load_from_cache(url: str, target: Path, device: str, variant: Variant, family: str):
+    """Download if the cache is missing/incomplete, load, and self-heal once if loading fails."""
+    downloaded_now = False
+    for attempt in (1, 2):
+        if not is_complete(target):
+            log.info("Downloading model %s -> %s", url, target)
+            fetch_model(url, target)  # raises SatEnhanceError(NETWORK_FAILURE)
+            downloaded_now = True
+        try:
+            return _load_compiled(target, device)
+        except ModuleNotFoundError as e:
+            raise SatEnhanceError(
+                ExitCode.MODEL_UNSUPPORTED,
+                f"The {family} model '{variant.name}' needs the Python package '{e.name}', which "
+                f"is not installed in this image. Rebuild the image with that package added "
+                f"(see docs/HOWTO.md, Troubleshooting).",
+            ) from e
+        except Exception as e:  # noqa: BLE001  (torch/mlstac raise many types)
+            if attempt == 1 and not downloaded_now:
+                log.warning("Cached model failed to load (%s); re-downloading once", e)
+                shutil.rmtree(target, ignore_errors=True)
+                continue
+            raise SatEnhanceError(
+                ExitCode.MODEL_UNSUPPORTED,
+                f"The {family} model '{variant.name}' downloaded fine but could not be loaded "
+                f"with torch {_torch_version()} on {device}: {e}. The model files may need a "
+                f"different torch version (see docs/HOWTO.md, Troubleshooting).",
+            ) from e
+    raise AssertionError("unreachable")
 
 
 def prefetch(variants: list[str], family: str, cache_root: Path) -> list[str]:

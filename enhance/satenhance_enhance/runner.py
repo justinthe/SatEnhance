@@ -18,6 +18,7 @@ from .cube import REFLECTANCE_MODES, build_cube
 from .georef import scaled_transform
 from .infer import run_inference
 from .inputs import load_input, resolve_run_dir
+from .mem import choose_block
 from .models import load_model, resolve_device
 from .preview import stretch_before, write_preview
 from .report import write_report
@@ -96,8 +97,11 @@ def enhance(p: EnhanceParams) -> Path:
         band_names=variant.bands, mask_geom=mask,
         tags={"SCENE_ID": man.scene.id, "MODEL": model.source, "VARIANT": variant_name},
     )
+    block, mem_warning = choose_block(p.block, len(variant.bands), p.overlap, s)
+    if mem_warning:
+        log.warning("%s", mem_warning)
     try:
-        stats = run_inference(model, cube, writer, block=p.block, overlap=p.overlap)
+        stats = run_inference(model, cube, writer, block=block, overlap=p.overlap)
     finally:
         writer.close()
 
@@ -115,6 +119,8 @@ def enhance(p: EnhanceParams) -> Path:
     import torch
 
     warnings = list(stats.warnings)
+    if mem_warning:
+        warnings.append(mem_warning)
     if model.stub:
         warnings.append("STUB MODEL: bicubic interpolation, not super-resolution (test mode)")
     try:
@@ -132,7 +138,8 @@ def enhance(p: EnhanceParams) -> Path:
         model_source=model.source, stub_model=model.stub, device=model.device,
         sen2sr_version=sen2sr_version, torch_version=torch.__version__,
         input_shape=[h, w], output_shape=list(out_shape), output_pixel_size_m=out_res[0],
-        reflectance_mode=p.reflectance, blocks=stats.blocks, oom_splits=stats.oom_splits,
+        reflectance_mode=p.reflectance, block_requested=p.block, block_used=block,
+        expected_output_bands=list(variant.bands), blocks=stats.blocks, oom_splits=stats.oom_splits,
         clip_to_polygon=p.clip_to_polygon, cog=p.cog,
         outputs={"main": main_path.name, "rgb8": rgb_path.name, "preview": preview_path.name},
         runtime_s=round(time.time() - t0, 2), warnings=warnings,

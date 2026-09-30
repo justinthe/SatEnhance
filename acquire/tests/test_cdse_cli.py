@@ -144,3 +144,67 @@ def test_cli_geocode_needs_confirmation(cli_env, monkeypatch):
                                  "--out", str(tmp_path / "raw"), "--cache", str(tmp_path / "c"),
                                  "--non-interactive"])
     assert r.exit_code == 11
+
+
+# ---- search paging / sorting (C4) and GDAL options (C2) -----------------------------------
+class PagingClient(FakeClient):
+    """Server that honours max_items but ignores sortby/query (date-ordered, like many STAC APIs)."""
+
+    def search(self, **kw):
+        self.calls.append(kw)
+        return FakeSearch(self.items[: kw.get("max_items")])
+
+
+def _items(n, best_index):
+    out = []
+    for i in range(n):
+        it = make_item(cloud=3.0 if i == best_index else 40.0)
+        it.id = f"S2_{i:03d}"
+        out.append(it)
+    return out
+
+
+def test_search_reaches_best_scene_beyond_first_page():
+    client = PagingClient(_items(120, best_index=110))
+    out = CdseProvider(client=client, env=ENV).search(
+        fixture_aoi(), date(2025, 1, 1), date(2026, 1, 1), 100
+    )
+    assert len(out) == 120 and min(c.tile_cloud for c in out) == 3.0
+    kw = client.calls[0]
+    assert kw["max_items"] == 500 and kw["limit"] == 100  # paged, not the old 50-item cut-off
+    assert kw["sortby"] == [{"field": "properties.eo:cloud_cover", "direction": "asc"}]
+
+
+def test_search_warns_when_cap_reached(caplog):
+    import logging
+    client = PagingClient(_items(600, best_index=0))
+    with caplog.at_level(logging.WARNING):
+        out = CdseProvider(client=client, env=ENV).search(
+            fixture_aoi(), date(2025, 1, 1), date(2026, 1, 1), 100
+        )
+    assert len(out) == 500 and "cap" in caplog.text
+
+
+def test_search_falls_back_step_by_step():
+    """sortby unsupported -> retry with query only -> retry with a plain search."""
+    class Picky(FakeClient):
+        def search(self, **kw):
+            self.calls.append(kw)
+            if "sortby" in kw or "query" in kw:
+                err = APIError("bad request")
+                err.status_code = 400
+                raise err
+            return FakeSearch(self.items)
+
+    client = Picky([make_item(5)])
+    out = CdseProvider(client=client, env=ENV).search(
+        fixture_aoi(), date(2026, 1, 1), date(2026, 1, 31), 20)
+    assert len(out) == 1
+    assert ["sortby" in c for c in client.calls] == [True, False, False]
+    assert ["query" in c for c in client.calls] == [True, True, False]
+
+
+def test_gdal_env_disables_directory_listing_and_sets_timeouts():
+    env = CdseProvider(client=FakeClient(), env=ENV).gdal_env()
+    assert env["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
+    assert int(env["GDAL_HTTP_TIMEOUT"]) >= 60 and int(env["GDAL_HTTP_CONNECTTIMEOUT"]) > 0
