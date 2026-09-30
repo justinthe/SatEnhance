@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Plan only, nothing in this document is implemented yet. Open questions answered 2026-09-30 (section G) |
+| **Status** | Implemented on branch `claude/practical-ptolemy-w1xnmq` (see section H). Open questions answered 2026-09-30 (section G) |
 | **Date** | 2026-09-30 |
 | **Branch** | `claude/practical-ptolemy-w1xnmq` (at `5ddc95b`); `main` is at `959f091` |
 
@@ -262,3 +262,44 @@ One commit per step, each pushed to `claude/practical-ptolemy-w1xnmq` only after
 | Q3 | Is the GPU image needed? | **Yes**, it's in scope (step 8). It can only be verified on your machine |
 
 The PRD will be updated to match in the same commits: the scene-selection row, the §6.1 parameter table, the §8.2 selection rules, and the manifest §10.
+
+---
+
+## H. Implementation status (2026-09-30)
+
+Legend: **done** = implemented and covered by tests that ran here; **done, unverified here** = implemented but needs your machine (GPU, Copernicus, Hugging Face).
+
+| Item | Status | Where / how it was verified |
+|---|---|---|
+| A1 pyproj missing in System 2 | done | `synthetic.py` uses rasterio; `test_*_isolation.py` fail if either system needs the other's packages; CI `test-enhance` green (run 10) |
+| A2 pip read timeouts | done | `docker/pip_retry.sh` (5 attempts) + `PIP_CACHE_DIR` pointed at the BuildKit cache mount. **Also fixed a bug I introduced:** with `HOME=/tmp` pip had been caching into the image layer and ignoring the mount, so the "resume from cache" I promised did not work and images were bloated. Verified: rebuild took ~1 minute with all pip layers cached |
+| A3 parallel builds | done | `build.sh` builds one image at a time |
+| A4 GPU image | done, unverified here | torch+torchvision+triton frozen by constraints, `mamba-ssm<2.3`, `MAX_JOBS`, `EXTRA_PIP_PACKAGES`, CUDA-mismatch build check. Cannot be built here (no GPU) |
+| A5 CPU torch swap | done | verified: no second torch download |
+| A6 "pull access denied" message | done | `pull_policy: never` on the three local services |
+| B1 truncated model cache | done | `download.py`: Range-resumable, size-checked, `.complete` marker, atomic rename. Tested against a fake HTTP server that cuts connections. Found and fixed during testing: 1 MB read chunks lost partial progress on a dropped connection |
+| B2/B3 model/torch compatibility, missing packages | done (mechanism); real models unverified | load errors classified (exit 21 with the package or torch version named); `selftest`; corrupt cache heals once |
+| B4 wrong band count | done | exit 22 with variant and band counts |
+| B5 GPU not visible in container | done, unverified here | flavour-aware messages; `doctor.sh` and `has_gpu()` test the GPU inside the GPU image |
+| B6 reflectance convention | done (tool); decision is yours | `selftest --compare-reflectance <run_id>` writes a side-by-side PNG |
+| B7 memory | done | `mem.py` lowers `--block` to fit available memory (cgroup-aware); `MemoryError` handled like CUDA OOM |
+| C1 relative AOI paths | done | script resolves from the caller's directory; `--aoi-file=PATH`; per-path staging folder. Smoke-tested from another directory |
+| C2 GDAL/S3 options | done, unverified against real S3 | `GDAL_DISABLE_READDIR_ON_OPEN`, timeouts |
+| C3 `probe` | done | `satenhance-acquire probe`; unit-tested with the fixture provider; real Copernicus run is yours |
+| C4 wide date ranges | done | server-side sort by cloud when supported, paging up to 500 items, cap warning, step-by-step fallback |
+| C5 mosaic (Q2) | done | see below |
+| C6 optional dates (Q1) | done | `--days`, UTC "today"; unit + CLI tests |
+| D1 `doctor.sh` | done | tested with fake docker/curl/nvidia-smi for every branch |
+| D2 `error_report.json` | done | written next to the run (or the output folder for early failures); secrets redacted |
+| D3 CI | done | torch+torchvision from one index; import-isolation tests; smoke runs in CI |
+
+**C5 mosaic, in numbers:** two tiles of one pass mosaicked over a seam are *pixel-identical* to the same area cut from one large synthetic tile (all bands, no holes); the clear tile wins where tiles overlap; a zone-boundary AOI (UTM 50S/51S) is reprojected onto the zone-50 lattice with class codes preserved; tiles with different processing-baseline offsets are harmonised. Two-tile mosaic also passes in the container smoke test through System 2.
+
+### Bugs found while implementing (none were in the original plan)
+1. `source .env` breaks on values with spaces/parentheses, including the shipped `.env.example`. Every script would have failed right after `cp .env.example .env`. Fixed with a safe parser.
+2. Pip cache baked into image layers (above).
+3. Test-suite pollution: a test module set `SATENHANCE_STUB_MODEL=0` at import time, silently disabling the stub for older tests. Moved into fixtures.
+4. Model downloads lost partial progress on dropped connections (above).
+
+### Still needs your machine
+Real Copernicus access (`probe`), real SEN2SR weights (`prefetch` runs `selftest`), the GPU image build and `--model full`, and the reflectance choice. Checklist in section F.
