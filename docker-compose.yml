@@ -14,6 +14,7 @@ x-volumes: &volumes
 services:
   acquire:
     image: satenhance-acquire:latest
+    pull_policy: never   # built locally; avoids a pointless 'pull access denied' message
     build:
       context: .
       dockerfile: acquire/Dockerfile
@@ -31,6 +32,7 @@ services:
 
   enhance-cpu:
     image: satenhance-enhance:cpu
+    pull_policy: never   # built locally; avoids a pointless 'pull access denied' message
     build:
       context: .
       dockerfile: enhance/Dockerfile.cpu
@@ -49,6 +51,7 @@ services:
   enhance-gpu:
     profiles: ["gpu"]
     image: satenhance-enhance:gpu
+    pull_policy: never   # built locally; avoids a pointless 'pull access denied' message
     build:
       context: .
       dockerfile: enhance/Dockerfile.gpu

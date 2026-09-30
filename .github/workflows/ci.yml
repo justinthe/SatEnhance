@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -e common -e acquire pytest responses
-      - run: pytest common acquire/tests -q
+      - run: pytest common acquire/tests tests/shell -q
 
   test-enhance:
     runs-on: ubuntu-latest

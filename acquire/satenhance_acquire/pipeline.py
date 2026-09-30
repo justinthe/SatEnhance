@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from satenhance_common import manifest as mf
@@ -15,6 +15,7 @@ from satenhance_common.paths import make_run_id, write_latest
 
 from . import aoi as aoi_mod
 from . import geocode, nodata, sizing
+from .dates import parse_date, today_utc  # noqa: F401  (parse_date re-exported)
 from .download import BAND_SETS, build_manifest, download_scene
 from .providers.base import Provider
 from .select import SEARCH_CLOUD_MARGIN, select_best
@@ -47,7 +48,7 @@ class AcquireParams:
 
 
 def validate(p: AcquireParams, today: date | None = None) -> None:
-    today = today or date.today()
+    today = today or today_utc()
     bad = lambda m: SatEnhanceError(ExitCode.INVALID_INPUT, m)  # noqa: E731
     if p.sensor not in SUPPORTED_SENSORS:
         raise bad(UNSUPPORTED_MESSAGES.get(p.sensor, f"Unknown sensor '{p.sensor}'. "
@@ -126,10 +127,3 @@ def acquire(
     mf.save(man, run_dir)
     write_latest(Path(p.out_dir), run_id)
     return run_dir
-
-
-def parse_date(text: str) -> date:
-    try:
-        return datetime.strptime(text, "%Y-%m-%d").date()
-    except ValueError as e:
-        raise SatEnhanceError(ExitCode.INVALID_INPUT, f"Invalid date '{text}' (want YYYY-MM-DD)") from e

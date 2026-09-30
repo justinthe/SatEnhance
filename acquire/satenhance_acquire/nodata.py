@@ -12,6 +12,7 @@ from pathlib import Path
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from shapely.geometry.base import BaseGeometry
 
+from .dates import today_utc
 from .prompts import ask, say
 from .providers.base import Provider
 from .select import Assessment
@@ -48,7 +49,7 @@ def diagnose(
     provider: Provider, aoi: BaseGeometry, start: date, end: date, max_cloud: float,
     assessments: list[Assessment], today: date | None = None,
 ) -> Diagnosis:
-    today = today or date.today()
+    today = today or today_utc()
     pad = max(30, (end - start).days)
     wide_start, wide_end = start - timedelta(days=pad), min(end + timedelta(days=pad), today)
     wide = provider.search(aoi, wide_start, wide_end, 100.0, limit=20)
@@ -103,7 +104,7 @@ def retry_menu(
     input_fn: Callable[[str], str] | None = None, today: date | None = None,
 ) -> tuple[float, date, date]:
     """Ask the user how to relax the query. Returns new (max_cloud, start, end)."""
-    today = today or date.today()
+    today = today or today_utc()
     say(explain(diag, aoi_label))
     if diag.nearest:
         say("Closest candidates:")

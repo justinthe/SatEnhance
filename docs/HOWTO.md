@@ -158,8 +158,9 @@ For place names, add `--yes` (otherwise the run stops with exit code 11 rather t
 |---|---|---|
 | `--aoi-file PATH` | – | Area of interest from a vector file: `.geojson`/`.json`, `.shp` or a `.zip` containing one, `.kml`, `.kmz`, `.gpkg`, or another format GDAL can read. Only polygons are used; several polygons are merged into one area. Points/lines alone are rejected. The file needs a coordinate system (GeoJSON is assumed WGS84) |
 | `--aoi-text "…"` | – | Area of interest by name, geocoded with OpenStreetMap Nominatim. Use *exactly one* of `--aoi-file` / `--aoi-text` |
-| `--start YYYY-MM-DD` | required | First day to search (inclusive) |
-| `--end YYYY-MM-DD` | required | Last day to search (inclusive). Cannot be in the future |
+| `--start YYYY-MM-DD` | see below | First day to search (inclusive) |
+| `--end YYYY-MM-DD` | see below | Last day to search (inclusive). Cannot be in the future |
+| `--days N` | `30` | Length of the default window (below) |
 | `--max-cloud N` | `20` | Highest acceptable cloud cover, in percent, **measured over your AOI** from the scene classification layer (not the whole ~100 km tile) |
 | `--sensor` | `rgb` | `rgb` = Sentinel-2 bands B02, B03, B04 (true colour) plus B08 (near-infrared, needed by the enhancement model). `multispectral` = 10 bands (B02–B08, B8A, B11, B12). Anything else is rejected — see below |
 | `--max-area-km2 N` | `100` (or `SATENHANCE_MAX_AREA_KM2`) | Refuses AOIs whose **bounding box** is bigger than this. The enhanced output is 16× more pixels than the input, so this protects your disk and memory |
@@ -169,6 +170,8 @@ For place names, add `--yes` (otherwise the run stops with exit code 11 rather t
 | `--out DIR` | `/data/rawdata` | Output folder inside the container (mapped to `./rawdata`; leave alone) |
 | `--cache DIR` | `/data/cache` | Geocoding cache (mapped to `./cache`; leave alone) |
 | `--log-json` | off | Machine-readable logs on stderr |
+
+**Dates are optional.** Neither given: the last 30 days up to today (UTC). Only `--end`: the 30 days before it. Only `--start`: the 30 days after it, never past today. Both given: used as is. The window actually searched is printed at the start of each run and stored in `manifest.json`.
 
 **Rejected sensors:** `lidar` (no Sentinel satellite provides it), `hyperspectral` (Sentinel-2 is multispectral), `sar` / Sentinel-1 (not in v1). You get exit code 2 and an explanation.
 
@@ -274,8 +277,7 @@ Use these in your own scripts (`echo $?`).
 | GPU image fails to build | `mamba-ssm` builds are fragile and this Dockerfile is untested on a real GPU. It pins `mamba-ssm<2.3` (newer versions make pip swap in a different CUDA build of PyTorch) and fails the build with a "CUDA mismatch" message if torch ends up on the wrong CUDA. Override `MAMBA_SPEC`, `TORCH_INDEX_URL`, `CUDA_VERSION` build args in `enhance/Dockerfile.gpu` if your GPU needs a different combination. If the failure is just a download timeout, re-run `./scripts/build.sh --gpu-only`; the pip cache lets it resume |
 | Files owned by root in `rawdata/`/`output/` | Run the scripts (not raw `docker run`); they pass your user id |
 | `image 'satenhance-…' not found` | The images aren't built yet. Run `./scripts/build.sh` first |
-| Build fails with `ReadTimeoutError` from `files.pythonhosted.org` (or another network error while `pip` downloads) | Slow or flaky connection. Just **re-run `./scripts/build.sh`**: `pip` now retries each download and keeps a cache between builds, so a re-run resumes instead of starting over. The System 2 image is the biggest download (PyTorch, several GB) |
-| `pull access denied for satenhance-acquire` during a build | Harmless. Compose tries to pull our locally built image first, then builds it |
+| Build fails with `ReadTimeoutError` from `files.pythonhosted.org` (or another network error while `pip` downloads) | Slow or flaky connection. Each `pip install` in the Dockerfiles is now retried up to 5 times, and finished wheels are kept in a build cache, so retries and re-runs of `./scripts/build.sh` resume rather than start over. Images are built one at a time so they don't compete for bandwidth. If it still fails, just re-run `./scripts/build.sh`; you can raise the attempts with `PIP_RETRY_ATTEMPTS=10`. A wheel that was only partly downloaded is fetched again in full |
 | First System 2 run is slow to start | It's downloading model weights. Use `prefetch` once |
 
 ---

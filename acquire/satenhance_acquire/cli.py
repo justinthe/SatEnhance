@@ -11,17 +11,20 @@ import typer
 from satenhance_common.exit_codes import ExitCode, SatEnhanceError
 from satenhance_common.logging import setup_logging
 
-from .pipeline import AcquireParams, acquire, parse_date
+from .dates import DEFAULT_DAYS, parse_date, resolve_window
+from .pipeline import AcquireParams, acquire
 from .prompts import is_interactive
 from .providers import get_provider
 
+log = logging.getLogger("satenhance")
 app = typer.Typer(add_completion=False, help="SatEnhance System 1: download Sentinel-2 data.")
 
 
 @app.command()
 def run(
-    start: str = typer.Option(..., "--start", help="Start date YYYY-MM-DD"),
-    end: str = typer.Option(..., "--end", help="End date YYYY-MM-DD"),
+    start: str | None = typer.Option(None, "--start", help="Start date YYYY-MM-DD (default: end minus --days)"),
+    end: str | None = typer.Option(None, "--end", help="End date YYYY-MM-DD (default: today, UTC)"),
+    days: int = typer.Option(DEFAULT_DAYS, "--days", help="Length of the default window when --start/--end are omitted"),
     aoi_file: Path | None = typer.Option(None, "--aoi-file", help="Vector file (geojson, shp/zip, kml, kmz, gpkg, ...)"),
     aoi_text: str | None = typer.Option(None, "--aoi-text", help='Place name, e.g. "Perth City, Western Australia"'),
     max_cloud: float = typer.Option(20.0, "--max-cloud", help="Max AOI cloud cover %"),
@@ -37,21 +40,28 @@ def run(
 ) -> None:
     setup_logging(log_json)
     try:
+        d_start, d_end, defaulted = resolve_window(
+            parse_date(start) if start else None, parse_date(end) if end else None, days
+        )
+        log.info(
+            "Searching %s -> %s%s", d_start, d_end,
+            f" (default window: {days} days)" if defaulted else "",
+        )
         params = AcquireParams(
-            start=parse_date(start), end=parse_date(end), max_cloud=max_cloud, sensor=sensor,
+            start=d_start, end=d_end, max_cloud=max_cloud, sensor=sensor,
             out_dir=out, cache_dir=cache, aoi_file=aoi_file, aoi_text=aoi_text,
             max_area_km2=max_area_km2, min_coverage=min_coverage, yes=yes,
             interactive=is_interactive(non_interactive),
         )
         run_dir = acquire(params, get_provider())
     except SatEnhanceError as e:
-        logging.getLogger("satenhance").error("%s", e.message)
+        log.error("%s", e.message)
         raise typer.Exit(int(e.code)) from e
     except (KeyboardInterrupt, EOFError):
-        logging.getLogger("satenhance").error("Aborted")
+        log.error("Aborted")
         raise typer.Exit(int(ExitCode.UNEXPECTED)) from None
     except Exception:  # noqa: BLE001
-        logging.getLogger("satenhance").exception("Unexpected error")
+        log.exception("Unexpected error")
         raise typer.Exit(int(ExitCode.UNEXPECTED)) from None
     print(f"Rawdata written to {run_dir}", file=sys.stderr)
     print(f"SATENHANCE_RUN_ID={run_dir.name}")

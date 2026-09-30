@@ -21,7 +21,7 @@ cp .env.example .env            # then fill in CDSE_S3_ACCESS_KEY / CDSE_S3_SECR
 # Everything in one go:
 ./scripts/run_pipeline.sh \
   --aoi-text "Perth City, Western Australia" \
-  --start 2026-01-01 --end 2026-03-31 --max-cloud 10 --sensor rgb
+  --max-cloud 10 --sensor rgb      # dates optional: defaults to the last 30 days
 ```
 
 Results: `rawdata/<run_id>/` (inputs + `manifest.json`) and `output/<run_id>/` (enhanced imagery).
@@ -42,7 +42,8 @@ Without a terminal (cron, CI) `--non-interactive` is added automatically.
 | Flag | Default | Notes |
 |---|---|---|
 | `--aoi-file PATH` *or* `--aoi-text "…"` | – | Exactly one. Files: `.geojson/.json`, `.shp` (or a `.zip` of one), `.kml`, `.kmz`, `.gpkg`, and other GDAL/OGR vectors. Only polygons are used; multiple features are merged |
-| `--start`, `--end` `YYYY-MM-DD` | – | Inclusive; `end` cannot be in the future |
+| `--start`, `--end` `YYYY-MM-DD` | last 30 days | Both optional. Neither given: the 30 days up to today (UTC). Only `--end`: the 30 days before it. Only `--start`: the 30 days after it (never past today). `end` cannot be in the future |
+| `--days N` | 30 | Length of that default window |
 | `--max-cloud N` | 20 | Percent cloud **over your AOI** (from the scene classification layer), not the whole tile |
 | `--sensor` | `rgb` | `rgb` (B02/B03/B04 + B08) or `multispectral` (10 bands). `lidar`, `hyperspectral` and `sar` are rejected (see below) |
 | `--max-area-km2 N` | 100 | Cap on the AOI's bounding box |

@@ -12,7 +12,7 @@ lint:
 	$(VENV)/bin/ruff check .
 
 test:
-	$(PY) -m pytest common acquire/tests enhance/tests -q
+	$(PY) -m pytest common acquire/tests enhance/tests tests/shell -q
 
 smoke:
 	bash tests/smoke/test_pipeline_smoke.sh

@@ -87,8 +87,9 @@ Sentinel-2 is free and frequent, but its 10 m pixels are too coarse for many GIS
 |---|---|---|---|---|---|
 | AOI (file) | `--aoi-file PATH` | path | one of file/text | — | See §7 |
 | AOI (text) | `--aoi-text "Perth City, Western Australia"` | string | one of file/text | — | Geocoded via Nominatim |
-| Start date | `--start YYYY-MM-DD` | date | yes | — | Inclusive |
-| End date | `--end YYYY-MM-DD` | date | yes | — | Inclusive; must be ≥ start and not in the future |
+| Start date | `--start YYYY-MM-DD` | date | no | end − 30 days | Inclusive. Both dates optional: neither → last 30 days to today (UTC); only `--end` → 30 days before it; only `--start` → 30 days after it, capped at today |
+| End date | `--end YYYY-MM-DD` | date | no | today (UTC) | Inclusive; must be ≥ start and not in the future |
+| Window length | `--days N` | int | no | 30 | Length of the default window |
 | Max cloud cover | `--max-cloud N` | 0–100 (%) | no | 20 | Applies to Sentinel-2 only |
 | Sensor / product | `--sensor {rgb,multispectral,sar}` | enum | no | `rgb` | See §6.2 |
 | Output dir | `--out DIR` | path | no | `/data/rawdata` | Container path |

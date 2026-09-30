@@ -10,7 +10,7 @@ ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 # pip never needs to replace torch to satisfy a mismatched torchvision from PyPI.
 ARG TORCH_SPEC="torch torchvision"
 
-ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONUNBUFFERED=1 HOME=/tmp \
+ENV PIP_CACHE_DIR=/root/.cache/pip PIP_DEFAULT_TIMEOUT=300 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONUNBUFFERED=1 HOME=/tmp \
     HF_HOME=/data/cache/hf
 
 # rasterio wheels need libexpat at runtime (not present in python:*-slim)
@@ -18,10 +18,12 @@ RUN ldconfig -p | grep -q libexpat.so.1 || \
     (apt-get update && apt-get install -y --no-install-recommends libexpat1 \
      && rm -rf /var/lib/apt/lists/*)
 
+COPY docker/pip_retry.sh /usr/local/bin/pip-retry
+
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
-    pip install --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} \
+    pip-retry --index-url ${TORCH_INDEX_URL} ${TORCH_SPEC} \
     && pip freeze | grep -iE '^(torch|torchvision)==' > /opt/torch-constraints.txt \
     && cat /opt/torch-constraints.txt
 
@@ -30,14 +32,14 @@ COPY enhance/requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
-    pip install -c /opt/torch-constraints.txt -r /tmp/requirements.lock
+    pip-retry -c /opt/torch-constraints.txt -r /tmp/requirements.lock
 
 COPY common ./common
 COPY enhance ./enhance
 RUN --mount=type=secret,id=cabundle,target=/tmp/ca.pem,required=false \
     --mount=type=cache,target=/root/.cache/pip \
     if [ -s /tmp/ca.pem ]; then export PIP_CERT=/tmp/ca.pem; fi; \
-    pip install --no-deps ./common ./enhance
+    pip-retry --no-deps ./common ./enhance
 
 RUN useradd -m -u 1000 app && mkdir -p /data/rawdata /data/output /data/cache && chown -R app /data
 USER app
