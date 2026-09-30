@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Plan only, nothing in this document is implemented yet |
+| **Status** | Plan only, nothing in this document is implemented yet. Open questions answered 2026-09-30 (section G) |
 | **Date** | 2026-09-30 |
 | **Branch** | `claude/practical-ptolemy-w1xnmq` (at `5ddc95b`); `main` is at `959f091` |
 
@@ -164,19 +164,44 @@ These all sit on code paths the stub model bypasses, so no test has exercised th
   - Log a warning if the cap was reached.
 - **Verify:** unit test with a fake 120-item catalogue where the best scene is on page 3.
 
-### C5. AOI crossing two Sentinel-2 tiles is reported as "no data"
-- **Evidence (code):** each scene is judged on its own. An AOI split across two tiles gets <95% coverage from each one, so every scene is rejected and the user is told to raise cloud cover, which won't help.
-- **Fix:**
-  - In the no-data report and the interactive menu, separate "rejected for cloud" from "rejected for coverage". When coverage is the reason, say the AOI spans tile edges and offer `--min-coverage` as a menu option.
-  - Mosaicking two tiles stays out of scope for v1, unless you want it.
-- **Verify:** unit test with a fixture AOI straddling two fake tiles.
+### C5. AOI crossing two (or more) Sentinel-2 tiles — **mosaic them** (decision Q2)
+- **Evidence (code):** each scene (one ~110 km MGRS tile) is judged on its own. An AOI split across tiles gets less than `--min-coverage` from each, so every scene is rejected. The user is then told to raise the cloud limit, which can't help.
+- **Decision:** when one tile doesn't cover the AOI, mosaic the tiles captured **on the same pass**. This is not a cloud-free composite across dates; that stays out of scope.
+- **Design:**
+  1. **Grouping.** Candidates are grouped into "acquisitions": same platform (S2A/S2B/S2C), same sensing day and same relative orbit. Tiles from one pass share all three. If the catalogue has no relative-orbit property **[VERIFY name, e.g. `sat:relative_orbit`]**, fall back to platform + sensing time within 10 minutes. A single tile that covers the AOI is just a group of one, so there is one code path.
+  2. **Common grid.** The target is the UTM zone that contains the AOI centroid, on a 10 m grid snapped to that zone's Sentinel-2 grid (20 m bands on a 20 m grid).
+     - Tiles already in that zone are copied with no resampling. As far as I know, MGRS tiles in one UTM zone share the same pixel grid **[VERIFY]**; this is asserted at run time, and if the grids aren't aligned the code falls back to reprojecting.
+     - Tiles from a neighbouring zone (the AOI is on a zone boundary) are reprojected. Reflectance uses bilinear; SCL uses nearest-neighbour, since it's a class map. Resampled tiles are recorded in the manifest.
+  3. **Filling overlaps.** Neighbouring tiles overlap by about 10 km. For each pixel, take the first tile with valid data, trying tiles in order of AOI cloud fraction (lowest first). Within a pixel, cloud-free beats cloudy (from SCL). The same choice applies to every band, so bands never mix tiles within a pixel.
+  4. **Reflectance offset.** Tiles in one pass normally share a processing baseline. If they don't, each tile's DNs are converted to one offset (+1000 for baseline ≥04.00) before mosaicking, and the manifest records the single resulting offset.
+  5. **Scoring.** AOI coverage and cloud fraction are computed on the *mosaic*, then groups are ranked exactly as single scenes are now (lowest AOI cloud, then most recent).
+  6. **Limits.** At most 4 tiles per group (an AOI under 100 km² can touch at most 4 tiles at a corner). If a group still covers less than `--min-coverage`, it's rejected with the reason "partial coverage even after mosaicking".
+  7. **No-data messages.** The report and menu separate "rejected for cloud" from "rejected for coverage", so the suggested fix matches the cause.
+- **Manifest change (System 1 → System 2 contract):** schema_version goes to `1.1`.
+  - `scene.id` becomes the acquisition id (e.g. `S2B_20260115_R074_MOSAIC`).
+  - New `scene.tiles: [{id, crs, resampled, coverage_pct}]` and `scene.mosaic: bool`.
+  - Band files stay one GeoTIFF per band, now already mosaicked, so **System 2 needs no change beyond accepting schema 1.1**. It will still read 1.0 manifests.
+- **Files:** new `acquire/satenhance_acquire/mosaic.py`; changes to `select.py`, `download.py`, `providers/base.py` (candidate gets `platform`, `relative_orbit`), `common/manifest.py` and its schema, `providers/fixture.py` (multi-tile fixtures).
+- **Verify (all testable here):**
+  - Two-tile fixture in the same zone: the output is pixel-identical to a single big synthetic tile, and coverage is 100%.
+  - Fixture across a zone boundary: extent and CRS are correct, SCL values stay integer classes, and bands stay aligned.
+  - Overlap fixture where one tile is cloudy: the clear tile wins in the overlap.
+  - Mixed-baseline fixture: offsets are harmonised.
+  - The container smoke test gets a mosaic run.
 
-### C6. Missing `--start` / `--end` gives an unfriendly message
-- **Evidence:** your first run (`./scripts/run_system1.sh --aoi-file data/map.kml`) had no dates. It never got that far because of the build, but it would have stopped with Typer's generic "Missing option '--start'" (exit 2).
-- **Fix:** keep dates required (see open question Q1), but make the error message show an example command.
-- **Verify:** CLI test.
-
----
+### C6. `--start` / `--end` become optional — default window 30 days (decision Q1)
+- **Evidence:** your first run (`./scripts/run_system1.sh --aoi-file data/map.kml`) had no dates. It would have stopped with Typer's "Missing option '--start'" (exit 2).
+- **Rules:**
+  - Neither given: end = today (UTC), start = end − 30 days.
+  - Only `--end`: start = end − 30 days.
+  - Only `--start`: end = start + 30 days, capped at today.
+  - Both given: unchanged. start must be ≤ end, and end can't be in the future.
+- **Other changes:**
+  - The resolved window is printed at the start (`Searching 2026-08-31 → 2026-09-30 (default: last 30 days)`) and stored in the manifest, as now.
+  - A new `--days N` option changes the default window length, e.g. `--days 60`.
+  - The no-data suggestions keep working, since they widen whatever window was used.
+- **Files:** `acquire/satenhance_acquire/cli.py`, `pipeline.py`; README and HOWTO parameter tables.
+- **Verify:** unit tests for all four combinations, with a fixed "today". The CLI works with no date flags.
 
 ## D. Diagnosis tooling (so the next failure takes minutes, not a round trip)
 
@@ -207,12 +232,16 @@ One command that prints PASS / FAIL with a fix hint for each check:
 |---|---|---|
 | 1 | A1, D3 | CI green first, so every later push is checked |
 | 2 | A2, A3, A6 | Unblocks your builds on a slow connection |
-| 3 | B1, B4, B7 | System 2 robustness that can be fully tested here |
-| 4 | C1, C2, C4, C5, C6 | System 1 robustness that can be fully tested here |
-| 5 | D1, D2, C3 (`probe`), B2/B3/B6 (`selftest`) | Tools for the checks only your machine can do |
-| 6 | A4 remainder, B5 | GPU; needs your machine to confirm |
+| 3 | C6 (date defaults) | Small, and makes every later manual run shorter to type |
+| 4 | B1, B4, B7 | System 2 robustness that can be fully tested here |
+| 5 | C1, C2, C4 | System 1 robustness that can be fully tested here |
+| 6 | C5 (mosaic, manifest 1.1) | The largest change. It builds on step 5's search and selection changes and gets its own commit |
+| 7 | D1, D2, C3 (`probe`), B2/B3/B6 (`selftest`) | Tools for the checks only your machine can do |
+| 8 | A4 remainder, B5 (**GPU — required**, decision Q3) | Can only be built and run on your GPU machine. I'll push it as soon as step 1 is done so you can start the long GPU build early, in parallel with steps 3–7 |
 
 One commit per step, each pushed to `claude/practical-ptolemy-w1xnmq` only after unit tests, lint and the container smoke test pass here. `main` is updated only when you ask.
+
+**GPU note:** the GPU image cannot be built or run here (no GPU, and the sandbox is rate-limited on Docker Hub), so step 8 is written and syntax-checked here but verified only by you. I'll give you a short checklist for it (build → `doctor.sh` → `selftest --model full`) and fix what it reports.
 
 ## F. What you will need to run (things I cannot test here)
 
@@ -220,11 +249,16 @@ One commit per step, each pushed to `claude/practical-ptolemy-w1xnmq` only after
 2. `./scripts/build.sh`, which now resumes after timeouts. Add `--gpu` only when you want the GPU image.
 3. Fill in `.env` with your Copernicus S3 keys, then `./scripts/run_system1.sh probe --aoi-file data/map.kml --start 2026-01-01 --end 2026-03-31`.
 4. `./scripts/run_system2.sh prefetch`, which runs `selftest` automatically.
-5. A real run: `./scripts/run_pipeline.sh --aoi-file data/map.kml --start … --end …`.
-6. Optional: `selftest --compare-reflectance <run_id>`, then tell me which PNG looks right.
+5. A real run: `./scripts/run_pipeline.sh --aoi-file data/map.kml` (dates now optional, last 30 days by default).
+6. GPU: `./scripts/build.sh --gpu-only`, then `./scripts/run_system2.sh --gpu selftest --model full`, then a real run with `-- --model full`.
+7. Optional: `selftest --compare-reflectance <run_id>`, then tell me which PNG looks right.
 
-## G. Open questions for you
+## G. Decisions (answered 2026-09-30)
 
-- **Q1.** Should `--start` / `--end` stay required, or default to "last 30 days" when omitted?
-- **Q2.** Should an AOI crossing two Sentinel-2 tiles stay out of scope for v1 (clear message plus `--min-coverage`), or do you want the two tiles mosaicked?
-- **Q3.** Is the GPU image actually needed now? If your GPU machine isn't the one you're testing on, I'd do the GPU work (step 6) last or leave it for later.
+| # | Question | Decision |
+|---|---|---|
+| Q1 | `--start` / `--end` required? | **Optional.** Default window is the last 30 days (see C6) |
+| Q2 | AOI crossing two tiles | **Mosaic the tiles** from the same pass (see C5) |
+| Q3 | Is the GPU image needed? | **Yes**, it's in scope (step 8). It can only be verified on your machine |
+
+The PRD will be updated to match in the same commits: the scene-selection row, the §6.1 parameter table, the §8.2 selection rules, and the manifest §10.
