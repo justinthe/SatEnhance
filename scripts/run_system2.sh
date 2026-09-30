@@ -26,7 +26,11 @@ if [[ "$target" == auto ]]; then
   fi
 fi
 service="enhance-$target"
-require_image "satenhance-enhance:$target"
+if [[ "$target" == gpu ]]; then
+  require_image "satenhance-enhance:gpu" "./scripts/build.sh --gpu-only"
+else
+  require_image "satenhance-enhance:cpu"
+fi
 echo "Using service: $service" >&2
 
 # shellcheck disable=SC2046

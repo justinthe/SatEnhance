@@ -346,6 +346,11 @@ All scripts are POSIX-friendly bash in `scripts/`, use `set -euo pipefail`, load
 | `scripts/run_system2.sh` | Runs `enhance` against an existing rawdata folder (`--run-id ID`, default: latest). Auto-selects GPU image if `nvidia-smi` and the Docker NVIDIA runtime are present, else CPU; override with `--cpu` / `--gpu`. |
 | `scripts/run_pipeline.sh` | Runs System 1, then System 2 on that run's output. Stops if System 1 fails. Propagates exit codes. |
 | `scripts/build.sh` | Builds the images. |
+| `scripts/doctor.sh` | Environment check (Docker, disk, keys, GPU incl. inside the GPU image, network reachability, model cache). Exits 1 on any FAIL. |
+| `scripts/run_system1.sh probe …` | One catalogue search plus a real pixel read; prints the first scene's asset names and `PROBE OK`/`PROBE FAILED`. |
+| `scripts/run_system2.sh selftest` | Loads each model variant and runs a test patch; `--compare-reflectance <run_id>` writes a side-by-side PNG of both reflectance conventions. `prefetch` runs it automatically. |
+
+Every failed run also writes `error_report.json` (exit code, message, stage, tool versions; secrets redacted) next to the outputs.
 
 Example:
 ```bash

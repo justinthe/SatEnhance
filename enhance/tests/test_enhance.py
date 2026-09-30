@@ -260,3 +260,18 @@ def test_report_records_mosaic_tiles_and_reads_manifest_1_1(raw, tmp_path):
     out = enhance(params(tmp_path))
     rep = json.loads((out / "enhance_report.json").read_text())
     assert rep["mosaic"] is True and rep["source_tiles"] == ["T1", "T2"]
+
+
+@pytest.mark.parametrize("flavor,needle", [
+    ("gpu", "no GPU is visible inside this GPU image"),
+    ("cpu", "this is the CPU image"),
+    ("", "no CUDA GPU is available"),
+])
+def test_no_gpu_message_says_why_for_each_image(monkeypatch, flavor, needle):
+    import torch
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setenv("SATENHANCE_IMAGE_FLAVOR", flavor)
+    for kwargs in (dict(requested="cuda", family="lite"), dict(requested="auto", family="full")):
+        with pytest.raises(SatEnhanceError) as e:
+            models.resolve_device(**kwargs)
+        assert e.value.code == ExitCode.MODEL_UNSUPPORTED and needle in e.value.message

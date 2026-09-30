@@ -90,6 +90,14 @@ RUN3="$(tr -d '\r\n' < rawdata/LATEST)"
 expect_rc 0  "manifest 1.1 lists both tiles, no holes at the seam" compose_py acquire - "$RUN3" < "$REPO/tests/smoke/check_mosaic.py"
 expect_rc 0  "enhanced mosaic is geometrically sane" compose_py enhance-cpu - "$RUN3" MOSAIC_ < "$REPO/tests/smoke/check_output.py"
 
+echo "--- diagnosis tools"
+expect_rc 0  "doctor.sh runs (network and disk-size checks neutralised)" env DOCTOR_SKIP_NETWORK=1 DOCTOR_FREE_KB=104857600 ./scripts/doctor.sh
+expect_rc 0  "probe reports catalogue + pixel access" \
+  ./scripts/run_system1.sh probe --aoi-file "$AOI" --start 2026-01-01 --end 2026-01-31
+expect_rc 0  "selftest loads each variant and runs a patch" ./scripts/run_system2.sh --cpu selftest --device cpu
+expect_rc 0  "failed runs leave an error_report.json" bash -c \
+  'rm -f rawdata/error_report.json; ! ./scripts/run_system1.sh --aoi-file cache/smoke/site.geojson --sensor lidar >/dev/null 2>&1; ls rawdata/error_report.json'
+
 echo "--- System 2 helper commands inside the enhance image"
 rm -rf rawdata/* output/*
 expect_rc 0  "synthetic rawdata generator runs in the enhance image" compose_py enhance-cpu -m satenhance_enhance.synthetic --out /data/rawdata

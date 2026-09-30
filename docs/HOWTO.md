@@ -78,6 +78,20 @@ Build-time environment variables (rarely needed):
 | `BASE_IMAGE=python:3.11` | Use the full Python image if `apt` cannot reach Debian mirrors |
 | `TORCH_INDEX_URL=…` | Where the CPU image gets PyTorch (default: PyTorch's CPU wheel index) |
 
+### Check your setup (do this first)
+
+Three small commands turn "it didn't work" into a specific message:
+
+| Command | What it checks | Needs |
+|---|---|---|
+| `./scripts/doctor.sh` | Docker and Compose versions, free disk, which images are built, `.env` present and keys set (values are never printed), GPU visible on the host **and inside the GPU image**, reachability of every service the pipeline uses (PyPI, PyTorch, Docker Hub, Copernicus, Nominatim, Hugging Face), model cache state | nothing |
+| `./scripts/run_system1.sh probe --aoi-file site.geojson` | One search against Copernicus, shows what the first scene really looks like (asset names, URLs, processing baseline), then reads real pixels. Prints `PROBE OK` or the one thing that is wrong | Copernicus keys |
+| `./scripts/run_system2.sh selftest` | Loads each model variant and runs a test patch through the real code path. Names a missing Python package or an incompatible PyTorch instead of failing inside a real run. `prefetch` runs it automatically | model weights (downloads them if needed) |
+
+`doctor.sh` exits 1 if anything FAILs (warnings are fine). If a real run fails, look for `error_report.json` (in the run folder, or in the output folder for early failures): it records the exit code, message, stage and tool versions, and never contains secret values.
+
+`./scripts/run_system2.sh selftest --compare-reflectance <run_id>` writes `output/<run_id>/reflectance_compare.png`: the same crop enhanced with both `--reflectance` conventions next to the input. Pick the one with natural-looking colours.
+
 ---
 
 ## 4. Which script to run
@@ -216,6 +230,7 @@ rawdata/
 └── <run_id>/                                # e.g. 20260929T134600_perth-city
     ├── manifest.json                        # what was downloaded + how to read it (System 2 input)
     ├── aoi.geojson                          # your AOI, cleaned up (WGS84, one geometry)
+    ├── error_report.json                    # only when the run failed
     ├── search_results.json                  # every scene considered, its AOI cloud/coverage, why rejected
     ├── no_data_report.json                  # only when nothing matched (exit 10)
     └── S2_<scene_id>/                        # scene_id is MOSAIC_… when tiles were joined
@@ -280,6 +295,12 @@ Use these in your own scripts (`echo $?`).
 | Files owned by root in `rawdata/`/`output/` | Run the scripts (not raw `docker run`); they pass your user id |
 | `image 'satenhance-…' not found` | The images aren't built yet. Run `./scripts/build.sh` first |
 | Build fails with `ReadTimeoutError` from `files.pythonhosted.org` (or another network error while `pip` downloads) | Slow or flaky connection. Each `pip install` in the Dockerfiles is now retried up to 5 times, and finished wheels are kept in a build cache, so retries and re-runs of `./scripts/build.sh` resume rather than start over. Images are built one at a time so they don't compete for bandwidth. If it still fails, just re-run `./scripts/build.sh`; you can raise the attempts with `PIP_RETRY_ATTEMPTS=10`. A wheel that was only partly downloaded is fetched again in full |
+| Exit 21: "needs the Python package 'X'" | The model's loader imports a package the image doesn't have. Add it to `enhance/requirements.lock` (or the GPU Dockerfile), rebuild, and run `./scripts/run_system2.sh selftest` |
+| Exit 21: "downloaded fine but could not be loaded with torch …" | The weights need a different PyTorch than the one in the image. The message names your torch version; try another `TORCH_SPEC` build arg, then `selftest` |
+| Model download interrupted | Just re-run `./scripts/run_system2.sh prefetch`: finished files are kept and partial ones resume. A cache is only trusted once it has a `.complete` marker, so a truncated download can no longer be mistaken for a good one |
+| Log says "Lowered --block from 512 to …" | Your container has little free memory; the run continues with smaller blocks. Give Docker more memory for speed |
+| Exit 22: "returned N bands but M were expected" | Wrong model weights are cached. Delete `cache/models/` and run `prefetch` again |
+| `--aoi-file` says "not found" though the file exists | Relative paths are relative to the directory you run the script from; check `pwd`, or pass an absolute path |
 | First System 2 run is slow to start | It's downloading model weights. Use `prefetch` once |
 
 ---

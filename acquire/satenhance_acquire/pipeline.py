@@ -91,6 +91,16 @@ def acquire(
     run_id = make_run_id(label)
     run_dir = Path(p.out_dir) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        return _acquire_into(p, provider, input_fn, aoi_res, label, run_id, run_dir)
+    except SatEnhanceError as e:
+        e.context.setdefault("run_dir", str(run_dir))
+        raise
+
+
+def _acquire_into(
+    p: AcquireParams, provider: Provider, input_fn, aoi_res, label: str, run_id: str, run_dir: Path
+) -> Path:
     aoi_mod.write_aoi(aoi_res, run_dir / "aoi.geojson")
 
     start, end, max_cloud, min_coverage = p.start, p.end, p.max_cloud, p.min_coverage

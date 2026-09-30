@@ -15,6 +15,7 @@ Prerequisites: Docker with the Compose plugin. For the GPU image, an NVIDIA GPU 
 
 ```bash
 cp .env.example .env            # then fill in CDSE_S3_ACCESS_KEY / CDSE_S3_SECRET_KEY
+./scripts/doctor.sh             # checks Docker, disk, keys, GPU and network; tells you what to fix
 ./scripts/build.sh              # builds acquire + enhance-cpu   (add --gpu for the GPU image)
 ./scripts/run_system2.sh prefetch   # optional: download model weights into ./cache
 

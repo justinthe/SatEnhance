@@ -63,14 +63,14 @@ def test_cli_without_dates_uses_last_30_days(tmp_path, monkeypatch):
     monkeypatch.setenv("SATENHANCE_FIXTURE_DIR", str(fx))
     args = ["--aoi-file", str(aoi), "--out", str(tmp_path / "raw"), "--cache", str(tmp_path / "c"),
             "--non-interactive", "--max-cloud", "10"]
-    r = CliRunner().invoke(app, args)
+    r = CliRunner().invoke(app, ["run", *args])
     assert r.exit_code == 0, r.output
     run_dir = next((tmp_path / "raw").glob("*_site"))
     man = mf.load(run_dir)
     assert man.scene.id == "RECENT"
     assert (date.fromisoformat(man.query.end) - date.fromisoformat(man.query.start)).days == DEFAULT_DAYS
     # a longer default window brings the old scene into consideration (it loses the tie on recency)
-    r = CliRunner().invoke(app, [*args, "--days", "120"])
+    r = CliRunner().invoke(app, ["run", *args, "--days", "120"])
     assert r.exit_code == 0, r.output
     newest = mf.load(sorted((tmp_path / "raw").glob("*_site"))[-1])
     assert (date.fromisoformat(newest.query.end) - date.fromisoformat(newest.query.start)).days == 120

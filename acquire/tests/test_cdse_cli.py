@@ -109,7 +109,7 @@ def cli_env(tmp_path, monkeypatch):
 
 def invoke(tmp_path, aoi, *extra):
     return CliRunner().invoke(app, [
-        "--aoi-file", str(aoi), "--out", str(tmp_path / "raw"), "--cache", str(tmp_path / "c"),
+        "run", "--aoi-file", str(aoi), "--out", str(tmp_path / "raw"), "--cache", str(tmp_path / "c"),
         "--non-interactive", *extra])
 
 
@@ -140,7 +140,7 @@ def test_cli_geocode_needs_confirmation(cli_env, monkeypatch):
     (cache / (__import__("hashlib").sha1(b"perth").hexdigest() + ".json")).write_text(json.dumps([{
         "display_name": "Perth", "boundingbox": ["-32.0", "-31.9", "115.8", "115.9"]}]))
     assert geocode  # cache pre-seeded so no network is needed
-    r = CliRunner().invoke(app, ["--aoi-text", "perth", "--start", "2026-01-01", "--end", "2026-01-31",
+    r = CliRunner().invoke(app, ["run", "--aoi-text", "perth", "--start", "2026-01-01", "--end", "2026-01-31",
                                  "--out", str(tmp_path / "raw"), "--cache", str(tmp_path / "c"),
                                  "--non-interactive"])
     assert r.exit_code == 11
@@ -208,3 +208,69 @@ def test_gdal_env_disables_directory_listing_and_sets_timeouts():
     env = CdseProvider(client=FakeClient(), env=ENV).gdal_env()
     assert env["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
     assert int(env["GDAL_HTTP_TIMEOUT"]) >= 60 and int(env["GDAL_HTTP_CONNECTTIMEOUT"]) > 0
+
+
+# ---- probe + error_report.json ----------------------------------------------------------------
+def test_probe_ok_prints_scene_details(cli_env):
+    tmp_path, aoi = cli_env
+    r = CliRunner().invoke(app, ["probe", "--aoi-file", str(aoi), "--start", "2026-01-01",
+                                 "--end", "2026-01-31", "--cache", str(tmp_path / "c"),
+                                 "--non-interactive"])
+    assert r.exit_code == 0, r.output
+    for text in ("catalogue: 1 scene(s)", "id:        S2_A", "SCL  ->", "reading real pixels",
+                 "PROBE OK"):
+        assert text in r.output, r.output
+
+
+def test_probe_reports_missing_assets(cli_env, monkeypatch):
+    from satenhance_acquire.providers import fixture
+
+    orig = fixture.FixtureProvider.href
+
+    def no_b08(self, candidate, band):
+        if band == "B08":
+            raise SatEnhanceError(ExitCode.NETWORK_FAILURE, "no asset")
+        return orig(self, candidate, band)
+    monkeypatch.setattr(fixture.FixtureProvider, "href", no_b08)
+    tmp_path, aoi = cli_env
+    r = CliRunner().invoke(app, ["probe", "--aoi-file", str(aoi), "--start", "2026-01-01",
+                                 "--end", "2026-01-31", "--cache", str(tmp_path / "c")])
+    assert r.exit_code == 5 and "B08  -> MISSING" in r.output and "PROBE FAILED" in r.output
+
+
+def test_probe_no_scenes_is_exit_10(cli_env):
+    tmp_path, aoi = cli_env
+    r = CliRunner().invoke(app, ["probe", "--aoi-file", str(aoi), "--start", "2025-01-01",
+                                 "--end", "2025-01-31", "--cache", str(tmp_path / "c")])
+    assert r.exit_code == 10 and "PROBE FAILED" in r.output
+
+
+def test_failed_run_writes_error_report_next_to_the_run(cli_env):
+    tmp_path, aoi = cli_env
+    r = invoke(tmp_path, aoi, "--start", "2026-02-01", "--end", "2026-02-05")  # no data -> exit 10
+    assert r.exit_code == 10
+    run_dir = next((tmp_path / "raw").glob("*/"))
+    data = json.loads((run_dir / "error_report.json").read_text())
+    assert data["exit_code"] == 10 and data["exit_name"] == "NO_DATA"
+    assert data["context"]["run_dir"].endswith(run_dir.name)
+
+
+def test_early_failure_report_goes_to_out_dir(cli_env):
+    tmp_path, aoi = cli_env
+    r = invoke(tmp_path, aoi, "--start", "2026-01-01", "--end", "2026-01-31", "--sensor", "lidar")
+    assert r.exit_code == 2
+    data = json.loads((tmp_path / "raw" / "error_report.json").read_text())
+    assert data["exit_code"] == 2 and "LiDAR" in data["message"]
+
+
+def test_shorthand_without_subcommand_means_run(monkeypatch):
+    import sys
+
+    from satenhance_acquire import cli
+    monkeypatch.setattr(sys, "argv", ["satenhance-acquire", "--start", "2026-01-01"])
+    monkeypatch.setattr(cli, "app", lambda: None)
+    cli.main()
+    assert sys.argv[1] == "run"
+    monkeypatch.setattr(sys, "argv", ["satenhance-acquire", "probe", "--start", "2026-01-01"])
+    cli.main()
+    assert sys.argv[1] == "probe"

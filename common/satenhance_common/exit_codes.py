@@ -24,3 +24,5 @@ class SatEnhanceError(Exception):
         super().__init__(message)
         self.code = ExitCode(code)
         self.message = message
+        # Extra facts a caller can attach on the way up (e.g. {"run_dir": ...}) for error reports.
+        self.context: dict = {}

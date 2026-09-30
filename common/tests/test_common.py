@@ -89,3 +89,27 @@ def test_tiles_roundtrip(tmp_path):
     m.scene.mosaic = True
     mf.save(m, tmp_path)
     assert mf.load(tmp_path) == m
+
+
+def test_error_report_written_and_redacted(tmp_path):
+    from satenhance_common.report import FILENAME, write_error_report
+
+    err = SatEnhanceError(ExitCode.NO_DATA, "nothing matched")
+    err.context["run_dir"] = "/data/rawdata/x"
+    path = write_error_report(tmp_path / "out", tool="acquire", exc=err, stage="search",
+                              argv=["--start", "2026-01-01", "--secret-key=abc"])
+    data = json.loads(path.read_text())
+    assert path.name == FILENAME and data["exit_code"] == 10 and data["exit_name"] == "NO_DATA"
+    assert data["stage"] == "search" and data["context"]["run_dir"] == "/data/rawdata/x"
+    assert "abc" not in path.read_text() and "***" in data["argv"]
+    assert "python" in data["versions"]
+
+
+def test_error_report_for_unexpected_exception_and_unwritable_dir(tmp_path):
+    from satenhance_common.report import write_error_report
+
+    p = write_error_report(tmp_path, tool="enhance", exc=ValueError("boom"))
+    assert json.loads(p.read_text())["exit_code"] == 1
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    assert write_error_report(blocker / "sub", tool="enhance", exc=ValueError("x")) is None
